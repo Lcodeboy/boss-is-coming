@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "skipLibCheck": true,
+    "rootDir": "..",
+    "outDir": "../temp/core-regressions"
+  },
+  "include": [
+    "core-regressions.ts",
+    "../assets/scripts/core/GameStateMachine.ts",
+    "../assets/scripts/core/InspectionSequence.ts",
+    "../assets/scripts/core/ViewportLayout.ts"
+  ]
+}
