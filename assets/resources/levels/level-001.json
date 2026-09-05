@@ -1,33 +1,42 @@
 {
   "id": "level-001",
+  "order": 1,
   "name": "突击检查",
   "durationSeconds": 30,
   "targetFloor": 18,
   "intro": "老板提前回来了，正在乘电梯前往18楼。请在他进门前整理好工位。",
+  "tutorial": [
+    "轻触电脑切换页面",
+    "长按并拖动物品到正确位置"
+  ],
   "tasks": [
     {
       "id": "computer",
       "prompt": "点击电脑，切换到工作页面",
       "successInspection": "电脑已经切换到工作页面。",
-      "failureInspection": "这个页面好像不是工作内容。"
+      "failureInspection": "这个页面好像不是工作内容。",
+      "requiredActionIds": ["switch-computer"]
     },
     {
       "id": "console",
       "prompt": "把游戏机收进抽屉",
       "successInspection": "桌面上的私人物品已经收好了。",
-      "failureInspection": "桌上的游戏机是谁的？"
+      "failureInspection": "桌上的游戏机是谁的？",
+      "requiredActionIds": ["store-console"]
     },
     {
       "id": "snack",
       "prompt": "把零食袋放进垃圾桶",
       "successInspection": "桌面整理得很干净。",
-      "failureInspection": "办公室里禁止乱放食品。"
+      "failureInspection": "办公室里禁止乱放食品。",
+      "requiredActionIds": ["discard-snack"]
     },
     {
       "id": "contract",
       "prompt": "把蓝色合同放到待检查区",
       "successInspection": "蓝色合同也准备好了。",
-      "failureInspection": "我要的蓝色合同在哪里？"
+      "failureInspection": "我要的蓝色合同在哪里？",
+      "requiredActionIds": ["prepare-contract"]
     }
   ],
   "zones": [
@@ -35,19 +44,22 @@
       "id": "drawer",
       "label": "抽屉\n收纳私人物品",
       "position": { "x": -225, "y": -225 },
-      "size": { "width": 190, "height": 112 }
+      "size": { "width": 190, "height": 112 },
+      "progressActionIds": []
     },
     {
       "id": "trash",
       "label": "垃圾桶",
       "position": { "x": 260, "y": -230 },
-      "size": { "width": 126, "height": 150 }
+      "size": { "width": 126, "height": 150 },
+      "progressActionIds": []
     },
     {
       "id": "review",
       "label": "待检查区\n蓝色合同放这里",
       "position": { "x": 218, "y": 132 },
-      "size": { "width": 220, "height": 142 }
+      "size": { "width": 220, "height": 142 },
+      "progressActionIds": []
     }
   ],
   "items": [
@@ -58,7 +70,8 @@
       "visual": "monitor",
       "initialPosition": { "x": -128, "y": 126 },
       "size": { "width": 270, "height": 150 },
-      "taskId": "computer",
+      "actionId": "switch-computer",
+      "clickStates": ["娱乐直播", "季度报表"],
       "completionFeedback": "电脑已切换到工作页面"
     },
     {
@@ -68,7 +81,7 @@
       "visual": "console",
       "initialPosition": { "x": -218, "y": -58 },
       "size": { "width": 150, "height": 88 },
-      "taskId": "console",
+      "actionId": "store-console",
       "targetZoneId": "drawer",
       "completionFeedback": "游戏机已收进抽屉"
     },
@@ -79,7 +92,7 @@
       "visual": "snack",
       "initialPosition": { "x": -28, "y": -72 },
       "size": { "width": 112, "height": 124 },
-      "taskId": "snack",
+      "actionId": "discard-snack",
       "targetZoneId": "trash",
       "completionFeedback": "零食袋已放进垃圾桶"
     },
@@ -90,19 +103,20 @@
       "visual": "contract",
       "initialPosition": { "x": 248, "y": -72 },
       "size": { "width": 158, "height": 96 },
-      "taskId": "contract",
+      "actionId": "prepare-contract",
       "targetZoneId": "review",
       "completionFeedback": "蓝色合同已放到待检查区"
     },
     {
       "id": "plant",
-      "label": "绿植\n（不用整理）",
+      "label": "桌面绿植",
       "interaction": "static",
       "visual": "plant",
       "initialPosition": { "x": 72, "y": 82 },
       "size": { "width": 112, "height": 132 }
     }
   ],
+  "events": [],
   "successEvaluation": "准备充分，突击检查顺利通过。",
   "failureEvaluation": "还有关键事项没有处理好。"
 }

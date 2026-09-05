@@ -1,4 +1,6 @@
 export enum GameState {
+    HOME = 'HOME',
+    LEVEL_SELECT = 'LEVEL_SELECT',
     READY = 'READY',
     PLAYING = 'PLAYING',
     PREPARED = 'PREPARED',
@@ -10,17 +12,19 @@ export enum GameState {
 export type StateChangeListener = (next: GameState, previous: GameState) => void;
 
 const ALLOWED_TRANSITIONS: Readonly<Record<GameState, readonly GameState[]>> = {
-    [GameState.READY]: [GameState.PLAYING],
-    [GameState.PLAYING]: [GameState.PREPARED, GameState.INSPECTING],
-    [GameState.PREPARED]: [GameState.INSPECTING],
+    [GameState.HOME]: [GameState.LEVEL_SELECT],
+    [GameState.LEVEL_SELECT]: [GameState.HOME, GameState.READY],
+    [GameState.READY]: [GameState.PLAYING, GameState.LEVEL_SELECT],
+    [GameState.PLAYING]: [GameState.PREPARED, GameState.INSPECTING, GameState.LEVEL_SELECT],
+    [GameState.PREPARED]: [GameState.INSPECTING, GameState.LEVEL_SELECT],
     [GameState.INSPECTING]: [GameState.SUCCESS, GameState.FAILURE],
-    [GameState.SUCCESS]: [GameState.READY],
-    [GameState.FAILURE]: [GameState.READY],
+    [GameState.SUCCESS]: [GameState.READY, GameState.LEVEL_SELECT],
+    [GameState.FAILURE]: [GameState.READY, GameState.LEVEL_SELECT],
 };
 
 /** 唯一的流程状态入口；非法或重复转换会被拒绝。 */
 export class GameStateMachine {
-    private _state = GameState.READY;
+    private _state = GameState.HOME;
     private _listener: StateChangeListener | null = null;
 
     public get state(): GameState {

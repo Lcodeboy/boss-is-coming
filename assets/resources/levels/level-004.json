@@ -1,0 +1,125 @@
+{
+  "id": "level-004",
+  "order": 4,
+  "name": "同事来添乱",
+  "durationSeconds": 30,
+  "targetFloor": 18,
+  "intro": "先处理桌上的三项工作。注意，同事可能临时往你的工位放东西。",
+  "tasks": [
+    {
+      "id": "computer",
+      "prompt": "切换电脑页面",
+      "successInspection": "电脑显示的是工作内容。",
+      "failureInspection": "电脑页面还没切换。",
+      "requiredActionIds": ["switch-computer"]
+    },
+    {
+      "id": "console",
+      "prompt": "收起游戏机",
+      "successInspection": "游戏机已经收好。",
+      "failureInspection": "桌上的游戏机是谁的？",
+      "requiredActionIds": ["store-console"]
+    },
+    {
+      "id": "contract",
+      "prompt": "准备检查文件",
+      "successInspection": "检查文件已经放好。",
+      "failureInspection": "需要检查的文件在哪里？",
+      "requiredActionIds": ["prepare-contract"]
+    },
+    {
+      "id": "coffee",
+      "prompt": "处理外卖咖啡",
+      "successInspection": "桌上没有遗留饮品。",
+      "failureInspection": "这杯外卖咖啡是谁放的？",
+      "requiredActionIds": ["discard-coffee"],
+      "initiallyActive": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "drawer",
+      "label": "抽屉",
+      "position": { "x": -235, "y": -225 },
+      "size": { "width": 175, "height": 112 }
+    },
+    {
+      "id": "trash",
+      "label": "垃圾桶",
+      "position": { "x": 270, "y": -225 },
+      "size": { "width": 120, "height": 148 }
+    },
+    {
+      "id": "review",
+      "label": "待检查区",
+      "position": { "x": 230, "y": 130 },
+      "size": { "width": 190, "height": 130 }
+    }
+  ],
+  "items": [
+    {
+      "id": "monitor",
+      "label": "电脑显示器",
+      "interaction": "click",
+      "visual": "monitor",
+      "initialPosition": { "x": -150, "y": 138 },
+      "size": { "width": 250, "height": 140 },
+      "actionId": "switch-computer",
+      "clickStates": ["娱乐直播", "工作看板"],
+      "completionFeedback": "电脑已切换到工作看板"
+    },
+    {
+      "id": "console",
+      "label": "游戏机",
+      "interaction": "drag",
+      "visual": "console",
+      "initialPosition": { "x": -225, "y": -62 },
+      "size": { "width": 135, "height": 82 },
+      "actionId": "store-console",
+      "targetZoneId": "drawer",
+      "completionFeedback": "游戏机已收进抽屉"
+    },
+    {
+      "id": "contract",
+      "label": "检查文件",
+      "interaction": "drag",
+      "visual": "contract",
+      "initialPosition": { "x": 190, "y": -72 },
+      "size": { "width": 135, "height": 88 },
+      "actionId": "prepare-contract",
+      "targetZoneId": "review",
+      "completionFeedback": "检查文件已准备好"
+    },
+    {
+      "id": "coffee",
+      "label": "外卖咖啡",
+      "interaction": "drag",
+      "visual": "coffee",
+      "initialPosition": { "x": 12, "y": -70 },
+      "size": { "width": 112, "height": 118 },
+      "actionId": "discard-coffee",
+      "targetZoneId": "trash",
+      "completionFeedback": "外卖咖啡已放进垃圾桶",
+      "initiallyVisible": false
+    },
+    {
+      "id": "plant",
+      "label": "桌面绿植",
+      "interaction": "static",
+      "visual": "plant",
+      "initialPosition": { "x": 55, "y": 95 },
+      "size": { "width": 105, "height": 118 }
+    }
+  ],
+  "events": [
+    {
+      "id": "coworker-coffee",
+      "triggerRemainingSeconds": 16,
+      "notification": "同事把咖啡放你桌上了",
+      "activateTaskIds": ["coffee"],
+      "activateItemIds": ["coffee"]
+    }
+  ],
+  "successEvaluation": "临时出现的咖啡也处理得很及时。",
+  "failureEvaluation": "突发情况处理得还不够完整。"
+}

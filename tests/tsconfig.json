@@ -10,8 +10,14 @@
   },
   "include": [
     "core-regressions.ts",
+    "stage2-regressions.ts",
     "../assets/scripts/core/GameStateMachine.ts",
     "../assets/scripts/core/InspectionSequence.ts",
-    "../assets/scripts/core/ViewportLayout.ts"
+    "../assets/scripts/core/LevelSession.ts",
+    "../assets/scripts/core/ProgressService.ts",
+    "../assets/scripts/core/TaskTracker.ts",
+    "../assets/scripts/core/ViewportLayout.ts",
+    "../assets/scripts/data/LevelParser.ts",
+    "../assets/scripts/data/LevelTypes.ts"
   ]
 }

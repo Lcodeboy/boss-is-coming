@@ -1,0 +1,135 @@
+{
+  "id": "level-005",
+  "order": 5,
+  "name": "临时加任务",
+  "durationSeconds": 26,
+  "targetFloor": 18,
+  "intro": "电脑需要连续处理两步，合同也有相似版本。老板还可能临时追加要求。",
+  "tasks": [
+    {
+      "id": "computer",
+      "prompt": "打开工作报表",
+      "successInspection": "电脑已经打开最终工作报表。",
+      "failureInspection": "电脑还没有切换到正确页面。",
+      "requiredActionIds": ["open-final-work-page"]
+    },
+    {
+      "id": "contract",
+      "prompt": "准备本期合同",
+      "successInspection": "本期合同选择正确。",
+      "failureInspection": "我要的是本期合同，不是旧版本。",
+      "requiredActionIds": ["prepare-current-contract"]
+    },
+    {
+      "id": "console",
+      "prompt": "收起游戏机",
+      "successInspection": "游戏机已经收好。",
+      "failureInspection": "游戏机怎么还放在桌上？",
+      "requiredActionIds": ["store-console"]
+    },
+    {
+      "id": "visitor-badge",
+      "prompt": "摆放访客证",
+      "successInspection": "访客证已经放在指定位置。",
+      "failureInspection": "刚才让你准备的访客证呢？",
+      "requiredActionIds": ["place-visitor-badge"],
+      "initiallyActive": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "drawer",
+      "label": "抽屉",
+      "position": { "x": -238, "y": -225 },
+      "size": { "width": 172, "height": 112 }
+    },
+    {
+      "id": "review",
+      "label": "待检查区",
+      "position": { "x": 230, "y": 130 },
+      "size": { "width": 190, "height": 130 }
+    },
+    {
+      "id": "visitor-spot",
+      "label": "访客证位置",
+      "position": { "x": 235, "y": -220 },
+      "size": { "width": 185, "height": 112 }
+    }
+  ],
+  "items": [
+    {
+      "id": "monitor",
+      "label": "电脑显示器",
+      "interaction": "click",
+      "visual": "monitor",
+      "initialPosition": { "x": -155, "y": 140 },
+      "size": { "width": 250, "height": 140 },
+      "actionId": "open-final-work-page",
+      "clickStates": ["娱乐直播", "公司邮箱", "工作报表"],
+      "progressFeedbacks": ["还差一步，再打开工作报表"],
+      "completionFeedback": "电脑已打开工作报表"
+    },
+    {
+      "id": "console",
+      "label": "游戏机",
+      "interaction": "drag",
+      "visual": "console",
+      "initialPosition": { "x": -225, "y": -62 },
+      "size": { "width": 130, "height": 80 },
+      "actionId": "store-console",
+      "targetZoneId": "drawer",
+      "completionFeedback": "游戏机已收进抽屉"
+    },
+    {
+      "id": "current-contract",
+      "label": "本期合同",
+      "interaction": "drag",
+      "visual": "contract",
+      "initialPosition": { "x": 175, "y": -65 },
+      "size": { "width": 125, "height": 84 },
+      "actionId": "prepare-current-contract",
+      "targetZoneId": "review",
+      "completionFeedback": "本期合同已放到待检查区"
+    },
+    {
+      "id": "old-contract",
+      "label": "旧版合同",
+      "interaction": "drag",
+      "visual": "contract",
+      "initialPosition": { "x": 35, "y": -65 },
+      "size": { "width": 125, "height": 84 },
+      "wrongDropFeedback": "老板要的不是这份"
+    },
+    {
+      "id": "visitor-badge",
+      "label": "访客证",
+      "interaction": "drag",
+      "visual": "visitor-badge",
+      "initialPosition": { "x": 35, "y": 80 },
+      "size": { "width": 112, "height": 76 },
+      "actionId": "place-visitor-badge",
+      "targetZoneId": "visitor-spot",
+      "completionFeedback": "访客证已放到桌面指定位置",
+      "initiallyVisible": false
+    },
+    {
+      "id": "plant",
+      "label": "桌面绿植",
+      "interaction": "static",
+      "visual": "plant",
+      "initialPosition": { "x": 62, "y": 190 },
+      "size": { "width": 104, "height": 116 }
+    }
+  ],
+  "events": [
+    {
+      "id": "boss-adds-badge",
+      "triggerRemainingSeconds": 18,
+      "notification": "老板发来消息：再把访客证放在桌上",
+      "activateTaskIds": ["visitor-badge"],
+      "activateItemIds": ["visitor-badge"]
+    }
+  ],
+  "successEvaluation": "多项临时要求都处理准确，表现很好。",
+  "failureEvaluation": "复杂任务中仍有关键步骤没有完成。"
+}

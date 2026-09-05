@@ -1,10 +1,11 @@
-import { _decorator, Component, error, ResolutionPolicy, view } from 'cc';
+import { _decorator, Component, error, ResolutionPolicy, sys, view } from 'cc';
 import { AudioFeedback } from '../core/AudioFeedback';
 import { BossApproachModel } from '../core/BossApproachModel';
 import { CountdownTimer } from '../core/CountdownTimer';
 import { GameState, GameStateMachine } from '../core/GameStateMachine';
-import { TaskTracker } from '../core/TaskTracker';
-import { LevelRepository } from '../data/LevelRepository';
+import { LevelSession, LevelSessionUpdate } from '../core/LevelSession';
+import { ProgressService } from '../core/ProgressService';
+import { LEVEL_IDS, LevelRepository } from '../data/LevelRepository';
 import { LevelConfig } from '../data/LevelTypes';
 import { GameView, GameViewActions } from '../ui/GameView';
 import { InspectionStep } from '../ui/InspectionView';
@@ -15,11 +16,13 @@ const { ccclass } = _decorator;
 @ccclass('GameFlowController')
 export class GameFlowController extends Component {
     private readonly _stateMachine = new GameStateMachine();
-    private readonly _taskTracker = new TaskTracker();
+    private readonly _session = new LevelSession();
     private readonly _approach = new BossApproachModel();
     private _timer: CountdownTimer | null = null;
     private _audio: AudioFeedback | null = null;
+    private _progress: ProgressService | null = null;
     private _gameView: GameView | null = null;
+    private _levels: readonly LevelConfig[] = [];
     private _level: LevelConfig | null = null;
     private _resultRemainingSeconds = 0;
     private _inspectionStarted = false;
@@ -30,8 +33,9 @@ export class GameFlowController extends Component {
         view.setDesignResolutionSize(DESIGN_WIDTH, DESIGN_HEIGHT, ResolutionPolicy.FIXED_WIDTH);
         this._timer = this.node.addComponent(CountdownTimer);
         this._audio = this.node.addComponent(AudioFeedback);
+        this._progress = new ProgressService(sys.localStorage, LEVEL_IDS.length);
         this._stateMachine.setListener((state) => this._gameView?.onStateChanged(state));
-        void this.loadLevel();
+        void this.loadApplication();
     }
 
     protected override onDestroy(): void {
@@ -40,19 +44,18 @@ export class GameFlowController extends Component {
         this._stateMachine.setListener(null);
         this._gameView = null;
         this._level = null;
+        this._levels = [];
     }
 
-    private async loadLevel(): Promise<void> {
+    private async loadApplication(): Promise<void> {
         try {
-            const level = await LevelRepository.load('level-001');
+            const levels = await LevelRepository.loadAll();
             if (this._disposed) {
                 return;
             }
-            this._level = level;
-            this._taskTracker.configure(level.tasks);
-            this._resultRemainingSeconds = level.durationSeconds;
+            this._levels = levels;
             this._gameView = this.node.addComponent(GameView);
-            this._gameView.initialize(level, this.createActions(), this.requireAudio());
+            this._gameView.initialize(levels, this.requireProgress().snapshot, this.createActions(), this.requireAudio());
         } catch (loadError: unknown) {
             const message = loadError instanceof Error ? loadError.message : String(loadError);
             error(message);
@@ -65,19 +68,48 @@ export class GameFlowController extends Component {
     private createActions(): GameViewActions {
         return {
             onStartChallenge: () => this.handleStartChallenge(),
+            onReturnHome: () => this.handleReturnHome(),
+            onSelectLevel: (levelId) => this.handleSelectLevel(levelId),
             onBeginLevel: () => this.handleBeginLevel(),
+            onTutorialAcknowledged: () => this.handleTutorialAcknowledged(),
+            onItemAction: (itemId) => this.handleItemAction(itemId),
+            onAbortLevel: () => this.handleReturnToLevels(),
             onRetry: () => this.handleRetry(),
-            onTaskCompleted: (taskId) => this.handleTaskCompleted(taskId),
+            onNextLevel: () => this.handleNextLevel(),
+            onReturnToLevels: () => this.handleReturnToLevels(),
             canInteract: () => this._stateMachine.state === GameState.PLAYING,
         };
     }
 
     private handleStartChallenge(): void {
-        if (this._stateMachine.state !== GameState.READY) {
+        if (!this._stateMachine.transition(GameState.LEVEL_SELECT)) {
             return;
         }
         this._audio?.play('button');
-        this._gameView?.showLevelIntro();
+        this._gameView?.showLevelSelect(this.requireProgress().snapshot.highestUnlockedLevel);
+    }
+
+    private handleReturnHome(): void {
+        if (!this._stateMachine.transition(GameState.HOME)) {
+            return;
+        }
+        this._audio?.play('button');
+        this._gameView?.showStartPage();
+    }
+
+    private handleSelectLevel(levelId: string): void {
+        if (this._stateMachine.state !== GameState.LEVEL_SELECT) {
+            return;
+        }
+        const level = this._levels.find((entry) => entry.id === levelId);
+        if (level === undefined || !this.requireProgress().isUnlocked(level.order)) {
+            return;
+        }
+        if (!this._stateMachine.transition(GameState.READY)) {
+            return;
+        }
+        this._audio?.play('button');
+        this.prepareLevel(level);
     }
 
     private handleBeginLevel(): void {
@@ -85,12 +117,28 @@ export class GameFlowController extends Component {
         if (level === null || this._stateMachine.state !== GameState.READY) {
             return;
         }
-        if (!this._stateMachine.transition(GameState.PLAYING)) {
+        if (level.tutorial.length > 0 && !this.requireProgress().snapshot.tutorialSeen) {
+            this._gameView?.showTutorial(level.tutorial);
             return;
         }
+        this.startRound();
+    }
 
+    private handleTutorialAcknowledged(): void {
+        const level = this._level;
+        if (level === null || this._stateMachine.state !== GameState.READY || level.tutorial.length === 0) {
+            return;
+        }
+        this.requireProgress().markTutorialSeen();
+        this.startRound();
+    }
+
+    private startRound(): void {
+        const level = this._level;
+        if (level === null || !this._stateMachine.transition(GameState.PLAYING)) {
+            return;
+        }
         this._audio?.play('button');
-        this._taskTracker.reset();
         this._inspectionStarted = false;
         this._warningPlayed = false;
         this._resultRemainingSeconds = level.durationSeconds;
@@ -102,15 +150,35 @@ export class GameFlowController extends Component {
         );
     }
 
-    private handleTaskCompleted(taskId: string): void {
-        if (this._stateMachine.state !== GameState.PLAYING || !this._taskTracker.complete(taskId)) {
-            return;
-        }
-        this._gameView?.markTaskCompleted(taskId, this._taskTracker.completedCount);
-        if (!this._taskTracker.allCompleted) {
-            return;
-        }
+    private prepareLevel(level: LevelConfig): void {
+        this.requireTimer().stopTimer();
+        this._level = level;
+        this._session.configure(level);
+        this._inspectionStarted = false;
+        this._warningPlayed = false;
+        this._resultRemainingSeconds = level.durationSeconds;
+        this._gameView?.configureLevel(level, this._session.snapshot);
+    }
 
+    private handleItemAction(itemId: string): void {
+        if (this._stateMachine.state !== GameState.PLAYING) {
+            return;
+        }
+        const update = this._session.performItemAction(itemId);
+        this.applySessionUpdate(update);
+        this.tryEnterPreparedState();
+    }
+
+    private applySessionUpdate(update: LevelSessionUpdate): void {
+        if (update.accepted) {
+            this._gameView?.applySessionUpdate(update);
+        }
+    }
+
+    private tryEnterPreparedState(): void {
+        if (this._stateMachine.state !== GameState.PLAYING || !this._session.allCompleted) {
+            return;
+        }
         const timer = this.requireTimer();
         this._resultRemainingSeconds = Math.max(0, timer.remainingSeconds);
         if (this._stateMachine.transition(GameState.PREPARED)) {
@@ -123,6 +191,10 @@ export class GameFlowController extends Component {
         const state = this._stateMachine.state;
         if (level === null || (state !== GameState.PLAYING && state !== GameState.PREPARED)) {
             return;
+        }
+        if (state === GameState.PLAYING) {
+            this.applySessionUpdate(this._session.advanceTime(remainingSeconds));
+            this.tryEnterPreparedState();
         }
         const snapshot = this._approach.calculate(level.durationSeconds, remainingSeconds, level.targetFloor);
         this._gameView?.updateApproach(snapshot, remainingSeconds);
@@ -151,12 +223,11 @@ export class GameFlowController extends Component {
         if (!this._stateMachine.transition(GameState.INSPECTING)) {
             return;
         }
-
         this._inspectionStarted = true;
         this.requireTimer().stopTimer();
         const snapshot = this._approach.calculate(level.durationSeconds, 0, level.targetFloor);
         this._gameView?.updateApproach(snapshot, 0);
-        const steps: readonly InspectionStep[] = this._taskTracker.createResults().map((result) => ({
+        const steps: readonly InspectionStep[] = this._session.createResults().map((result) => ({
             passed: result.completed,
             message: result.completed ? result.task.successInspection : result.task.failureInspection,
         }));
@@ -164,23 +235,25 @@ export class GameFlowController extends Component {
     }
 
     private finishInspection(): void {
-        if (this._stateMachine.state !== GameState.INSPECTING || this._level === null) {
+        const level = this._level;
+        if (level === null || this._stateMachine.state !== GameState.INSPECTING) {
             return;
         }
-        const success = this._taskTracker.allCompleted;
-        const nextState = success ? GameState.SUCCESS : GameState.FAILURE;
-        if (!this._stateMachine.transition(nextState)) {
+        const success = this._session.allCompleted;
+        if (!this._stateMachine.transition(success ? GameState.SUCCESS : GameState.FAILURE)) {
             return;
         }
-        const firstMissing = this._taskTracker.firstIncompleteTask();
+        this.requireProgress().recordResult(level.order, success);
+        const firstMissing = this._session.firstIncompleteTask();
         this._gameView?.showResult({
             success,
-            completedCount: this._taskTracker.completedCount,
-            totalCount: this._taskTracker.totalCount,
+            completedCount: this._session.completedCount,
+            totalCount: this._session.totalCount,
             remainingSeconds: this._resultRemainingSeconds,
             evaluation: success
-                ? this._level.successEvaluation
-                : firstMissing?.failureInspection ?? this._level.failureEvaluation,
+                ? level.successEvaluation
+                : firstMissing?.failureInspection ?? level.failureEvaluation,
+            hasNextLevel: success && level.order < this._levels.length,
         });
         this._audio?.play('result');
     }
@@ -196,11 +269,44 @@ export class GameFlowController extends Component {
             return;
         }
         this._audio?.play('button');
-        this._taskTracker.reset();
+        this.prepareLevel(level);
+    }
+
+    private handleNextLevel(): void {
+        const level = this._level;
+        if (level === null || this._stateMachine.state !== GameState.SUCCESS) {
+            return;
+        }
+        const nextLevel = this._levels.find((entry) => entry.order === level.order + 1);
+        if (nextLevel === undefined || !this.requireProgress().isUnlocked(nextLevel.order)) {
+            return;
+        }
+        if (!this._stateMachine.transition(GameState.READY)) {
+            return;
+        }
+        this._audio?.play('button');
+        this.prepareLevel(nextLevel);
+    }
+
+    private handleReturnToLevels(): void {
+        const state = this._stateMachine.state;
+        if (
+            state !== GameState.READY
+            && state !== GameState.PLAYING
+            && state !== GameState.PREPARED
+            && state !== GameState.SUCCESS
+            && state !== GameState.FAILURE
+        ) {
+            return;
+        }
+        this.requireTimer().stopTimer();
+        if (!this._stateMachine.transition(GameState.LEVEL_SELECT)) {
+            return;
+        }
+        this._audio?.play('button');
         this._inspectionStarted = false;
-        this._warningPlayed = false;
-        this._resultRemainingSeconds = level.durationSeconds;
-        this._gameView?.resetForRetry();
+        this._gameView?.cancelGameplay();
+        this._gameView?.showLevelSelect(this.requireProgress().snapshot.highestUnlockedLevel);
     }
 
     private requireTimer(): CountdownTimer {
@@ -215,6 +321,13 @@ export class GameFlowController extends Component {
             throw new Error('音效接口尚未初始化');
         }
         return this._audio;
+    }
+
+    private requireProgress(): ProgressService {
+        if (this._progress === null) {
+            throw new Error('进度服务尚未初始化');
+        }
+        return this._progress;
     }
 
     private showLoadFailure(message: string): void {

@@ -57,9 +57,29 @@ export class DropZone extends Component {
         }
     }
 
+    public setProgress(completed: number, total: number): void {
+        const config = this._config;
+        if (config === null || total <= 0) {
+            return;
+        }
+        const safeCompleted = Math.max(0, Math.min(total, completed));
+        if (safeCompleted >= total) {
+            this.markCompleted();
+            if (this._label !== null) {
+                this._label.string = config.progressCompleteLabel ?? `${config.label} ${total}/${total}`;
+            }
+            return;
+        }
+        this.resetVisual();
+        if (this._label !== null) {
+            this._label.string = `${config.label} ${safeCompleted}/${total}`;
+        }
+    }
+
     public resetVisual(): void {
         drawRoundedPanel(this.node, new Color(226, 234, 238, 220), 16, Palette.blueGray, 3);
         if (this._label !== null) {
+            this._label.string = this._config?.label ?? '';
             this._label.color = Palette.blueGrayDark;
         }
     }

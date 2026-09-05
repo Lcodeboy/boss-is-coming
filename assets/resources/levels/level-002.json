@@ -1,0 +1,133 @@
+{
+  "id": "level-002",
+  "order": 2,
+  "name": "文件别拿错",
+  "durationSeconds": 28,
+  "targetFloor": 18,
+  "intro": "老板只要蓝色文件。桌上还有红色和黄色文件，千万别拿错。",
+  "tasks": [
+    {
+      "id": "computer",
+      "prompt": "切换电脑页面",
+      "successInspection": "电脑已经切换到工作页面。",
+      "failureInspection": "电脑上怎么还是娱乐内容？",
+      "requiredActionIds": ["switch-computer"]
+    },
+    {
+      "id": "console",
+      "prompt": "收起游戏机",
+      "successInspection": "游戏机已经妥善收好。",
+      "failureInspection": "桌上的游戏机是谁的？",
+      "requiredActionIds": ["store-console"]
+    },
+    {
+      "id": "snack",
+      "prompt": "处理零食袋",
+      "successInspection": "桌面没有乱放食品。",
+      "failureInspection": "办公室里禁止乱放食品。",
+      "requiredActionIds": ["discard-snack"]
+    },
+    {
+      "id": "contract",
+      "prompt": "准备蓝色文件",
+      "successInspection": "蓝色文件准备正确。",
+      "failureInspection": "我要的蓝色文件在哪里？",
+      "requiredActionIds": ["prepare-blue-contract"]
+    }
+  ],
+  "zones": [
+    {
+      "id": "drawer",
+      "label": "抽屉",
+      "position": { "x": -240, "y": -225 },
+      "size": { "width": 170, "height": 112 }
+    },
+    {
+      "id": "trash",
+      "label": "垃圾桶",
+      "position": { "x": 270, "y": -225 },
+      "size": { "width": 118, "height": 145 }
+    },
+    {
+      "id": "review",
+      "label": "待检查区",
+      "position": { "x": 235, "y": 132 },
+      "size": { "width": 190, "height": 128 }
+    }
+  ],
+  "items": [
+    {
+      "id": "monitor",
+      "label": "电脑显示器",
+      "interaction": "click",
+      "visual": "monitor",
+      "initialPosition": { "x": -155, "y": 138 },
+      "size": { "width": 250, "height": 140 },
+      "actionId": "switch-computer",
+      "clickStates": ["娱乐直播", "项目进度"],
+      "completionFeedback": "电脑已切换到工作页面"
+    },
+    {
+      "id": "console",
+      "label": "游戏机",
+      "interaction": "drag",
+      "visual": "console",
+      "initialPosition": { "x": -235, "y": -63 },
+      "size": { "width": 126, "height": 76 },
+      "actionId": "store-console",
+      "targetZoneId": "drawer",
+      "completionFeedback": "游戏机已收进抽屉"
+    },
+    {
+      "id": "snack",
+      "label": "零食袋",
+      "interaction": "drag",
+      "visual": "snack",
+      "initialPosition": { "x": -88, "y": -68 },
+      "size": { "width": 92, "height": 105 },
+      "actionId": "discard-snack",
+      "targetZoneId": "trash",
+      "completionFeedback": "零食袋已处理"
+    },
+    {
+      "id": "blue-contract",
+      "label": "蓝色文件",
+      "interaction": "drag",
+      "visual": "contract",
+      "initialPosition": { "x": 215, "y": -68 },
+      "size": { "width": 106, "height": 76 },
+      "actionId": "prepare-blue-contract",
+      "targetZoneId": "review",
+      "completionFeedback": "蓝色文件已放到待检查区"
+    },
+    {
+      "id": "red-contract",
+      "label": "红色文件",
+      "interaction": "drag",
+      "visual": "contract-red",
+      "initialPosition": { "x": 42, "y": -65 },
+      "size": { "width": 106, "height": 76 },
+      "wrongDropFeedback": "老板要的不是这份"
+    },
+    {
+      "id": "yellow-contract",
+      "label": "黄色文件",
+      "interaction": "drag",
+      "visual": "contract-yellow",
+      "initialPosition": { "x": 130, "y": -150 },
+      "size": { "width": 106, "height": 76 },
+      "wrongDropFeedback": "老板要的不是这份"
+    },
+    {
+      "id": "plant",
+      "label": "桌面绿植",
+      "interaction": "static",
+      "visual": "plant",
+      "initialPosition": { "x": 62, "y": 92 },
+      "size": { "width": 104, "height": 116 }
+    }
+  ],
+  "events": [],
+  "successEvaluation": "文件选择准确，检查顺利通过。",
+  "failureEvaluation": "桌面或文件准备仍有遗漏。"
+}

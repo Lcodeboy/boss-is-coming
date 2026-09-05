@@ -38,6 +38,7 @@ export interface LabelOptions {
     readonly horizontalAlign?: HorizontalTextAlignment;
     readonly verticalAlign?: VerticalTextAlignment;
     readonly bold?: boolean;
+    readonly wrap?: boolean;
 }
 
 export function createUiNode(parent: Node, name: string, width: number, height: number): Node {
@@ -104,7 +105,7 @@ export function createLabel(
     label.horizontalAlign = options.horizontalAlign ?? HorizontalTextAlignment.CENTER;
     label.verticalAlign = options.verticalAlign ?? VerticalTextAlignment.CENTER;
     label.overflow = Label.Overflow.SHRINK;
-    label.enableWrapText = true;
+    label.enableWrapText = options.wrap ?? true;
     label.isBold = options.bold ?? false;
     return label;
 }

@@ -19,7 +19,7 @@ import { DropZone } from './DropZone';
 const { ccclass } = _decorator;
 
 export type InteractionGuard = () => boolean;
-export type WorkItemCompleted = (taskId: string) => void;
+export type WorkItemCompleted = (itemId: string) => void;
 export type WorkItemMessage = (message: string, success: boolean) => void;
 
 @ccclass('WorkItem')
@@ -39,6 +39,11 @@ export class WorkItem extends Component {
     private _pageLabel: Label | null = null;
     private _completed = false;
     private _pressed = false;
+    private _clickProgress = 0;
+
+    public get itemId(): string {
+        return this._config?.id ?? '';
+    }
 
     public configure(
         config: WorkItemConfig,
@@ -61,10 +66,18 @@ export class WorkItem extends Component {
         this.resetItem();
     }
 
+    public setAvailable(available: boolean): void {
+        this.node.active = available;
+        if (available) {
+            this.resetItem();
+        }
+    }
+
     public resetItem(): void {
         Tween.stopAllByTarget(this.node);
         this._completed = false;
         this._pressed = false;
+        this._clickProgress = 0;
         this.node.setScale(this._normalScale);
         this.node.setPosition(this._homePosition);
         this.drawItem(false, false);
@@ -133,34 +146,34 @@ export class WorkItem extends Component {
         }
         event.propagationStopped = true;
         this._pressed = false;
-
         if (!this._canInteract?.()) {
             this.returnHome();
             return;
         }
-
         if (config.interaction === 'click') {
-            this.completeClickItem();
+            this.advanceClickItem();
             return;
         }
 
         const zone = this.findCorrectZone();
         if (zone === null || this.node.parent === null) {
             this._audio?.play('item-wrong');
-            this._onMessage?.('位置不对，再试一次', false);
+            this._onMessage?.(config.wrongDropFeedback ?? '位置不对，再试一次', false);
             this.returnHome();
             return;
         }
 
         this._completed = true;
         zone.copySnapPosition(this.node.parent, this._snapPosition);
-        zone.markCompleted();
+        if (config.completeZoneOnDrop) {
+            zone.markCompleted();
+        }
         Tween.stopAllByTarget(this.node);
         tween(this.node)
             .to(0.16, { position: this._snapPosition, scale: this._normalScale }, { easing: 'quadOut' })
             .call(() => this.drawItem(true, false))
             .start();
-        this.finishTask();
+        this.finishAction();
     }
 
     private onTouchCancel(): void {
@@ -171,24 +184,36 @@ export class WorkItem extends Component {
         this.returnHome();
     }
 
-    private completeClickItem(): void {
-        this._completed = true;
+    private advanceClickItem(): void {
+        const config = this._config;
+        if (config === null) {
+            return;
+        }
+        const requiredClicks = Math.max(1, config.clickStates.length - 1);
+        this._clickProgress = Math.min(requiredClicks, this._clickProgress + 1);
+        const completed = this._clickProgress >= requiredClicks;
+        this._completed = completed;
         Tween.stopAllByTarget(this.node);
         tween(this.node)
             .to(0.1, { scale: this._normalScale })
-            .call(() => this.drawItem(true, false))
+            .call(() => this.drawItem(completed, false))
             .start();
-        this.finishTask();
+        if (completed) {
+            this.finishAction();
+            return;
+        }
+        const feedback = config.progressFeedbacks[this._clickProgress - 1] ?? '还需要继续操作';
+        this._onMessage?.(feedback, false);
     }
 
-    private finishTask(): void {
+    private finishAction(): void {
         const config = this._config;
-        if (config?.taskId === undefined) {
+        if (config?.actionId === undefined) {
             return;
         }
         this._audio?.play('item-correct');
         this._onMessage?.(config.completionFeedback ?? '任务完成', true);
-        this._onCompleted?.(config.taskId);
+        this._onCompleted?.(config.id);
     }
 
     private findCorrectZone(): DropZone | null {
@@ -218,25 +243,31 @@ export class WorkItem extends Component {
         const config = this._config;
         this.node.addComponent(Graphics);
         if (config.visual === 'monitor') {
-            this._pageLabel = createLabel(this.node, 'MonitorPage', '娱乐直播', config.size.width - 34, config.size.height - 46, {
+            this._pageLabel = createLabel(this.node, 'MonitorPage', '', config.size.width - 34, config.size.height - 46, {
                 fontSize: 24,
                 color: Palette.white,
                 bold: true,
+                wrap: false,
             });
             this._pageLabel.node.setPosition(0, 8);
-            this._mainLabel = createLabel(this.node, 'MonitorHint', '点击切换页面', config.size.width, 30, {
-                fontSize: 18,
-                color: Palette.muted,
-            });
+            const clicks = Math.max(1, config.clickStates.length - 1);
+            this._mainLabel = createLabel(
+                this.node,
+                'MonitorHint',
+                clicks > 1 ? `点击 ${clicks} 次切换` : '点击切换页面',
+                config.size.width,
+                30,
+                { fontSize: 18, color: Palette.muted, wrap: false },
+            );
             this._mainLabel.node.setPosition(0, -96);
-        } else {
-            const text = config.visual === 'plant' ? `${config.label}` : config.label;
-            this._mainLabel = createLabel(this.node, 'ItemLabel', text, config.size.width - 10, config.size.height - 8, {
-                fontSize: config.visual === 'plant' ? 20 : 23,
-                color: Palette.white,
-                bold: true,
-            });
+            return;
         }
+        this._mainLabel = createLabel(this.node, 'ItemLabel', config.label, config.size.width - 10, config.size.height - 8, {
+            fontSize: config.visual === 'plant' ? 20 : 22,
+            color: config.visual === 'report-page' ? Palette.ink : Palette.white,
+            bold: true,
+            wrap: false,
+        });
     }
 
     private drawItem(completed: boolean, selected: boolean): void {
@@ -247,15 +278,24 @@ export class WorkItem extends Component {
         const fill = this.itemFill(config.visual, completed);
         const stroke = completed ? Palette.success : selected ? Palette.warning : Palette.blueGrayDark;
         const lineWidth = selected ? 6 : completed ? 5 : 3;
-        drawRoundedPanel(this.node, fill, config.visual === 'contract' ? 8 : 16, stroke, lineWidth);
-
+        drawRoundedPanel(this.node, fill, this.isDocument(config.visual) ? 8 : 16, stroke, lineWidth);
         if (this._pageLabel !== null) {
-            this._pageLabel.string = completed ? '季度报表' : '娱乐直播';
-            this._pageLabel.color = Palette.white;
+            const stateIndex = Math.min(this._clickProgress, config.clickStates.length - 1);
+            this._pageLabel.string = config.clickStates[stateIndex] ?? config.label;
         }
         if (this._mainLabel !== null && config.visual !== 'monitor') {
             this._mainLabel.string = completed ? `✓ ${config.label}` : config.label;
+            this._mainLabel.color = completed || config.visual !== 'report-page' ? Palette.white : Palette.ink;
         }
+    }
+
+    private isDocument(visual: WorkItemConfig['visual']): boolean {
+        return visual === 'contract'
+            || visual === 'contract-red'
+            || visual === 'contract-yellow'
+            || visual === 'report-page'
+            || visual === 'bound-report'
+            || visual === 'visitor-badge';
     }
 
     private itemFill(visual: WorkItemConfig['visual'], completed: boolean): Color {
@@ -271,8 +311,20 @@ export class WorkItem extends Component {
                 return new Color(214, 119, 48, 255);
             case 'contract':
                 return Palette.contractBlue;
+            case 'contract-red':
+                return new Color(190, 83, 76, 255);
+            case 'contract-yellow':
+                return new Color(205, 161, 55, 255);
             case 'plant':
                 return new Color(72, 145, 103, 255);
+            case 'report-page':
+                return new Color(235, 235, 226, 255);
+            case 'bound-report':
+                return new Color(70, 111, 151, 255);
+            case 'coffee':
+                return new Color(151, 95, 57, 255);
+            case 'visitor-badge':
+                return new Color(52, 150, 157, 255);
         }
     }
 
