@@ -4,12 +4,18 @@ import {
     calculateFixedWidthViewport,
     calculateLevelSelectLayout,
     calculatePortraitGameLayout,
+    calculateStartPageLayout,
     calculateWorkspaceLayout,
     DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
     WORKSPACE_BASE_CONTENT_HEIGHT,
     WORKSPACE_DESK_HEIGHT,
     WORKSPACE_TITLE_HEIGHT,
 } from '../assets/scripts/core/ViewportLayout';
+import {
+    calculateCoveredRatio,
+    LEVEL_ONE_PLANT_VISUAL_OFFSET_X,
+    RESULT_VISUAL_METRICS,
+} from '../assets/scripts/ui/VisualMetrics';
 
 interface RoundResult {
     readonly inspectedIndexes: readonly number[];
@@ -93,6 +99,8 @@ const ratios = [
     { name: '360x640', width: 360, height: 640, expectedHeight: 1334 },
     { name: '360x780', width: 360, height: 780, expectedHeight: 1625 },
     { name: '360x800', width: 360, height: 800, expectedHeight: 5000 / 3 },
+    { name: '393x852', width: 393, height: 852, expectedHeight: 750 * 852 / 393 },
+    { name: '393x873', width: 393, height: 873, expectedHeight: 750 * 873 / 393 },
 ] as const;
 
 let baseWorkspaceHeight = 0;
@@ -105,12 +113,17 @@ for (let index = 0; index < ratios.length; index += 1) {
     assert(viewport.height >= 1334, `${ratio.name} 背景必须覆盖安全设计区`);
     const layout = calculatePortraitGameLayout(viewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
     const workspace = calculateWorkspaceLayout(layout.workspaceHeight);
+    const startLayout = calculateStartPageLayout(viewport);
     const selectLayout = calculateLevelSelectLayout(viewport, 5);
     assert(layout.headerY < viewport.safeTop, `${ratio.name} 标题必须位于顶部安全区内`);
     assert(layout.bossY < layout.headerY, `${ratio.name} 老板进度必须位于标题下方`);
     assert(layout.taskY < layout.bossY, `${ratio.name} 任务清单必须位于老板进度下方`);
     assert(layout.workspaceHeight >= 690 && layout.workspaceHeight <= 1120, `${ratio.name} 工位高度越界`);
     assert(layout.helperY > viewport.safeBottom, `${ratio.name} 底部提示必须位于底部安全区内`);
+    assert(startLayout.titleY < viewport.safeTop, `${ratio.name} 开始页标题必须位于顶部安全区内`);
+    assert(startLayout.startButtonY - 52 > viewport.safeBottom, `${ratio.name} 开始按钮必须位于底部安全区上方`);
+    assert(startLayout.elevatorTop < startLayout.subtitleY - 20, `${ratio.name} 电梯不得遮挡副标题`);
+    assert(startLayout.elevatorBottom > startLayout.startButtonY + 52, `${ratio.name} 电梯不得遮挡开始按钮`);
 
     const taskBottom = layout.taskY - DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.taskHeight / 2;
     const workspaceTitleTop = layout.workspaceY + workspace.titleY + WORKSPACE_TITLE_HEIGHT / 2;
@@ -154,6 +167,7 @@ for (let index = 0; index < ratios.length; index += 1) {
     );
     assert(selectLayout.panelHeight <= viewport.safeHeight, `${ratio.name} 关卡面板必须位于安全区内`);
     assert(selectLayout.titleY > selectLayout.listTop, `${ratio.name} 关卡标题必须位于列表上方`);
+    assert(selectLayout.entryHeight >= 108 && selectLayout.entryHeight <= 126, `${ratio.name} 关卡记录行应保持紧凑`);
     assert(selectLayout.backButtonY < selectLayout.listBottom, `${ratio.name} 返回首页必须位于列表下方`);
     const occupiedListHeight = selectLayout.entryHeight * 5 + selectLayout.entryGap * 4;
     assert(
@@ -169,6 +183,24 @@ for (let index = 0; index < ratios.length; index += 1) {
 }
 
 assert(tallWorkspaceHeight > baseWorkspaceHeight, '长屏增加的空间应优先扩展工位区域');
+
+const resultStatusBottom = RESULT_VISUAL_METRICS.statusCenterY - RESULT_VISUAL_METRICS.statusHeight / 2;
+const resultTitleTop = RESULT_VISUAL_METRICS.titleCenterY + RESULT_VISUAL_METRICS.titleHeight / 2;
+assert(resultStatusBottom - resultTitleTop >= 24, '成功对勾与结算标题至少间隔24设计像素');
+for (const ratio of ratios.filter((entry) => entry.name === '360x640' || entry.name.startsWith('393x'))) {
+    const viewport = calculateFixedWidthViewport(ratio.width, ratio.height, 750, 1334);
+    assert(RESULT_VISUAL_METRICS.cardHeight <= viewport.safeHeight, `${ratio.name} 结算卡片必须完整位于安全区`);
+}
+
+const trayBounds = { left: 108, right: 328, bottom: 61, top: 203 } as const;
+const plantArtworkBounds = {
+    left: 72 + LEVEL_ONE_PLANT_VISUAL_OFFSET_X - 57,
+    right: 72 + LEVEL_ONE_PLANT_VISUAL_OFFSET_X + 57,
+    bottom: 82 - 66,
+    top: 82 + 103,
+} as const;
+const trayCoveredRatio = calculateCoveredRatio(trayBounds, plantArtworkBounds);
+assert(trayCoveredRatio <= 0.2, `第一关待检查托盘至少应有80%区域清晰可见，遮挡率为${trayCoveredRatio}`);
 
 const notchedViewport = calculateFixedWidthViewport(
     360,

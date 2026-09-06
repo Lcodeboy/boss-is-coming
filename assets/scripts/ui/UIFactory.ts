@@ -9,28 +9,12 @@ import {
     VerticalTextAlignment,
 } from 'cc';
 import { SizeData } from '../data/LevelTypes';
+import { Palette } from './VisualTheme';
 
 export const DESIGN_WIDTH = 750;
 export const DESIGN_HEIGHT = 1334;
 
-export const Palette = {
-    background: new Color(239, 238, 232, 255),
-    panel: new Color(255, 255, 252, 255),
-    ink: new Color(42, 55, 66, 255),
-    muted: new Color(102, 119, 132, 255),
-    blueGray: new Color(91, 119, 140, 255),
-    blueGrayDark: new Color(55, 78, 94, 255),
-    paleBlue: new Color(222, 232, 238, 255),
-    blue: new Color(50, 112, 184, 255),
-    contractBlue: new Color(47, 119, 206, 255),
-    success: new Color(55, 164, 103, 255),
-    successPale: new Color(220, 244, 229, 255),
-    warning: new Color(222, 79, 48, 255),
-    warningPale: new Color(255, 226, 212, 255),
-    overlay: new Color(24, 34, 43, 205),
-    white: new Color(255, 255, 255, 255),
-    transparent: new Color(0, 0, 0, 0),
-} as const;
+export { Palette } from './VisualTheme';
 
 export interface LabelOptions {
     readonly fontSize?: number;

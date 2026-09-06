@@ -18,6 +18,7 @@
     "../assets/scripts/core/TaskTracker.ts",
     "../assets/scripts/core/ViewportLayout.ts",
     "../assets/scripts/data/LevelParser.ts",
-    "../assets/scripts/data/LevelTypes.ts"
+    "../assets/scripts/data/LevelTypes.ts",
+    "../assets/scripts/ui/VisualMetrics.ts"
   ]
 }

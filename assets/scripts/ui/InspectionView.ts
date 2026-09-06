@@ -1,4 +1,4 @@
-import { _decorator, Component, Label } from 'cc';
+import { _decorator, Component, Label, Node, Tween, tween, UIOpacity } from 'cc';
 import { InspectionSequence, InspectionSequenceEvent } from '../core/InspectionSequence';
 import { createLabel, createRoundedPanel, drawRoundedPanel, Palette } from './UIFactory';
 
@@ -19,38 +19,66 @@ export class InspectionView extends Component {
     private _titleLabel: Label | null = null;
     private _messageLabel: Label | null = null;
     private _progressLabel: Label | null = null;
+    private _card: Node | null = null;
     private _messagePanel: ReturnType<typeof createRoundedPanel> | null = null;
+    private _messageOpacity: UIOpacity | null = null;
+    private _eyebrowLabel: Label | null = null;
     private _steps: readonly InspectionStep[] = [];
     private _index = 0;
     private _onFinished: InspectionFinished | null = null;
+    private _formal = false;
 
     public initialize(): void {
         drawRoundedPanel(this.node, Palette.overlay, 0);
-        const card = createRoundedPanel(this.node, 'InspectionCard', 650, 470, Palette.panel, 28);
-        this._titleLabel = createLabel(card, 'Title', '老板开始检查…', 560, 64, {
+        this._card = createRoundedPanel(this.node, 'InspectionCard', 650, 470, Palette.panel, 28);
+        this._eyebrowLabel = createLabel(this._card, 'Eyebrow', '18F · DESK REVIEW', 500, 30, {
+            fontSize: 15,
+            color: Palette.blue,
+            bold: true,
+            wrap: false,
+        });
+        this._eyebrowLabel.node.setPosition(0, 195);
+        this._titleLabel = createLabel(this._card, 'Title', '老板开始检查…', 560, 64, {
             fontSize: 38,
             color: Palette.ink,
             bold: true,
         });
         this._titleLabel.node.setPosition(0, 150);
-        this._progressLabel = createLabel(card, 'Progress', '检查 1/4', 500, 38, {
+        this._progressLabel = createLabel(this._card, 'Progress', '检查 1/4', 500, 38, {
             fontSize: 22,
             color: Palette.muted,
         });
         this._progressLabel.node.setPosition(0, 95);
-        this._messagePanel = createRoundedPanel(card, 'MessageBubble', 550, 185, Palette.paleBlue, 22);
+        this._messagePanel = createRoundedPanel(this._card, 'MessageBubble', 550, 185, Palette.paleBlue, 22);
         this._messagePanel.setPosition(0, -20);
+        this._messageOpacity = this._messagePanel.addComponent(UIOpacity);
         this._messageLabel = createLabel(this._messagePanel, 'Message', '', 480, 145, {
             fontSize: 29,
             color: Palette.ink,
             bold: true,
         });
-        const footer = createLabel(card, 'Footer', '检查结果将逐项给出', 500, 40, {
+        const footer = createLabel(this._card, 'Footer', '检查结果将逐项给出', 500, 40, {
             fontSize: 20,
             color: Palette.muted,
         });
         footer.node.setPosition(0, -168);
         this.node.active = false;
+    }
+
+    public setFormalTheme(formal: boolean): void {
+        this._formal = formal;
+        if (this._card !== null) {
+            drawRoundedPanel(
+                this._card,
+                Palette.panel,
+                28,
+                formal ? Palette.blueGray : Palette.paleBlue,
+                formal ? 2 : 0,
+            );
+        }
+        if (this._eyebrowLabel !== null) {
+            this._eyebrowLabel.node.active = formal;
+        }
     }
 
     public play(steps: readonly InspectionStep[], onFinished: InspectionFinished): void {
@@ -72,6 +100,10 @@ export class InspectionView extends Component {
         this._steps = [];
         this._index = 0;
         this._onFinished = null;
+        if (this._messageOpacity !== null) {
+            Tween.stopAllByTarget(this._messageOpacity);
+            this._messageOpacity.opacity = 255;
+        }
         this.node.active = false;
     }
 
@@ -95,8 +127,13 @@ export class InspectionView extends Component {
             step.passed ? Palette.successPale : Palette.warningPale,
             22,
             step.passed ? Palette.success : Palette.warning,
-            3,
+            this._formal ? 2 : 3,
         );
+        if (this._messageOpacity !== null) {
+            Tween.stopAllByTarget(this._messageOpacity);
+            this._messageOpacity.opacity = 90;
+            tween(this._messageOpacity).to(0.14, { opacity: 255 }).start();
+        }
     }
 
     private readonly advance = (): void => {

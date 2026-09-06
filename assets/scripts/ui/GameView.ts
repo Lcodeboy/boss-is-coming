@@ -19,6 +19,7 @@ import { ProgressData } from '../core/ProgressService';
 import {
     calculateFixedWidthViewport,
     calculatePortraitGameLayout,
+    calculateStartPageLayout,
     calculateWorkspaceLayout,
     DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
     FixedWidthViewport,
@@ -31,7 +32,6 @@ import {
 import { LevelConfig } from '../data/LevelTypes';
 import { DropZone } from '../game/DropZone';
 import { WorkItem } from '../game/WorkItem';
-import { ActionButton } from './ActionButton';
 import { BossApproachView } from './BossApproachView';
 import { InspectionFinished, InspectionStep, InspectionView } from './InspectionView';
 import { LevelSelectView } from './LevelSelectView';
@@ -39,6 +39,15 @@ import { ResultActions, ResultPresentation, ResultView } from './ResultView';
 import { TaskPanelView } from './TaskPanelView';
 import { TutorialView } from './TutorialView';
 import { createLabel, createRoundedPanel, createUiNode, DESIGN_HEIGHT, DESIGN_WIDTH, Palette } from './UIFactory';
+import {
+    createElevatorHall,
+    createThemedButton,
+    paintBossSilhouette,
+    paintFormalDesk,
+    paintFormalOfficeFloor,
+    paintWorkspaceDepth,
+} from './VisualFactory';
+import { ThemeButtonVariant } from './VisualTheme';
 
 const { ccclass } = _decorator;
 
@@ -78,6 +87,7 @@ export class GameView extends Component {
     );
     private _actions: GameViewActions | null = null;
     private _audio: AudioFeedback | null = null;
+    private _formalLevel = false;
 
     public initialize(
         levels: readonly LevelConfig[],
@@ -137,6 +147,9 @@ export class GameView extends Component {
     public configureLevel(level: LevelConfig, snapshot: LevelSessionSnapshot): void {
         this.cancelTransientViews();
         this.teardownLevel();
+        this._formalLevel = level.order === 1;
+        this._inspectionView?.setFormalTheme(this._formalLevel);
+        this._resultView?.setFormalTheme(this._formalLevel);
         this.buildGameLayer(level, snapshot);
         this.buildIntroOverlay(level, snapshot.activeTaskIds);
         this._levelSelectView?.hide();
@@ -246,7 +259,7 @@ export class GameView extends Component {
             'TopAccent',
             this._viewport.width,
             accentHeight,
-            Palette.blueGrayDark,
+            Palette.backgroundDeep,
             0,
         );
         topAccent.setPosition(0, this._viewport.height / 2 - accentHeight / 2);
@@ -279,46 +292,59 @@ export class GameView extends Component {
         if (this._gameRoot === null || this._actions === null) {
             return;
         }
-        this._startOverlay = this.createBlockingOverlay('StartOverlay', Palette.background);
-        const cardHeight = Math.max(760, Math.min(1400, this._viewport.safeHeight - 96));
-        const card = createRoundedPanel(this._startOverlay, 'StartCard', 650, cardHeight, Palette.panel, 34, Palette.paleBlue, 4);
-        card.setPosition(0, (this._viewport.safeTop + this._viewport.safeBottom) / 2);
-        const badge = createRoundedPanel(card, 'Badge', 210, 58, Palette.warningPale, 20);
-        badge.setPosition(0, cardHeight * 0.32);
-        createLabel(badge, 'BadgeText', '五关办公室挑战', 190, 45, {
-            fontSize: 20,
+        this._startOverlay = this.createBlockingOverlay('StartOverlay', Palette.backgroundDeep);
+        const hall = createElevatorHall(this._startOverlay, this._viewport);
+        const startLayout = calculateStartPageLayout(this._viewport);
+        const title = createLabel(hall, 'Title', '老板上来了', 610, 96, {
+            fontSize: 62,
+            color: Palette.white,
+            bold: true,
+            wrap: false,
+        });
+        title.node.setPosition(0, startLayout.titleY);
+        const subtitle = createLabel(hall, 'Subtitle', '在老板进门前整理好工位', 560, 54, {
+            fontSize: 27,
+            color: Palette.mutedLight,
+            wrap: false,
+        });
+        subtitle.node.setPosition(0, startLayout.subtitleY);
+
+        const led = createRoundedPanel(hall, 'FloorLed', 260, 66, Palette.backgroundDeep, 12, Palette.elevatorMetal, 3);
+        led.setPosition(0, startLayout.ledY);
+        createLabel(led, 'FloorLedText', 'B2  ↑  18F', 230, 52, {
+            fontSize: 29,
+            color: Palette.led,
+            bold: true,
+            wrap: false,
+        });
+        const alert = createRoundedPanel(hall, 'AlertBadge', 190, 44, Palette.warningPale, 22);
+        alert.setPosition(-142, startLayout.alertY);
+        createLabel(alert, 'AlertText', '突击检查预警', 190, 38, {
+            fontSize: 19,
             color: Palette.warning,
             bold: true,
             wrap: false,
         });
-        const title = createLabel(card, 'Title', '老板上来了', 560, 110, {
-            fontSize: 60,
-            color: Palette.ink,
-            bold: true,
-        });
-        title.node.setPosition(0, cardHeight * 0.20);
-        const subtitle = createLabel(card, 'Subtitle', '在老板进门前整理好工位', 540, 80, {
-            fontSize: 31,
-            color: Palette.muted,
-            wrap: false,
-        });
-        subtitle.node.setPosition(0, cardHeight * 0.10);
-        const elevator = createRoundedPanel(card, 'ElevatorIcon', 230, 150, Palette.paleBlue, 18, Palette.blueGray, 4);
-        elevator.setPosition(0, -cardHeight * 0.08);
-        createLabel(elevator, 'ElevatorText', 'B2  ↑  18F\n老板正在接近', 200, 120, {
-            fontSize: 27,
-            color: Palette.blueGrayDark,
-            bold: true,
-        });
-        const startButton = this.createButton(card, 'StartButton', '开始挑战', this._actions.onStartChallenge, 360, 104);
-        startButton.setPosition(0, -cardHeight * 0.34);
+        const boss = createUiNode(hall, 'BossSilhouette', 150, 190);
+        boss.setPosition(260, startLayout.bossY);
+        paintBossSilhouette(boss);
+        const startButton = this.createButton(
+            hall,
+            'StartButton',
+            '开始挑战',
+            this._actions.onStartChallenge,
+            360,
+            104,
+            'primary',
+        );
+        startButton.setPosition(0, startLayout.startButtonY);
     }
 
     private buildLevelSelect(levels: readonly LevelConfig[]): void {
         if (this._gameRoot === null || this._actions === null) {
             return;
         }
-        const node = this.createBlockingOverlay('LevelSelectOverlay', Palette.background);
+        const node = this.createBlockingOverlay('LevelSelectOverlay', Palette.backgroundDeep);
         this._levelSelectView = node.addComponent(LevelSelectView);
         this._levelSelectView.initialize(levels, this._viewport, this._actions.onSelectLevel, this._actions.onReturnHome);
     }
@@ -362,15 +388,16 @@ export class GameView extends Component {
         }
         const layout = calculatePortraitGameLayout(this._viewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
         this._gameLayer = createUiNode(this._gameRoot, 'GameLayer', DESIGN_WIDTH, this._viewport.height);
+        const formal = level.order === 1;
         const bossNode = createRoundedPanel(this._gameLayer, 'BossApproach', 680, 190, Palette.panel, 22);
         bossNode.setPosition(0, layout.bossY);
         this._bossView = bossNode.addComponent(BossApproachView);
-        this._bossView.initialize();
+        this._bossView.initialize(formal);
 
         const taskNode = createRoundedPanel(this._gameLayer, 'TaskPanel', 680, 164, Palette.panel, 20);
         taskNode.setPosition(0, layout.taskY);
         this._taskView = taskNode.addComponent(TaskPanelView);
-        this._taskView.initialize(level.tasks, snapshot.activeTaskIds);
+        this._taskView.initialize(level.tasks, snapshot.activeTaskIds, formal);
         const abortButton = this.createButton(
             this._gameLayer,
             'AbortButton',
@@ -378,7 +405,7 @@ export class GameView extends Component {
             this._actions.onAbortLevel,
             112,
             80,
-            new Color(104, 113, 120, 255),
+            'quiet',
         );
         abortButton.setPosition(284, layout.headerY);
 
@@ -387,7 +414,7 @@ export class GameView extends Component {
             'Workspace',
             700,
             layout.workspaceHeight,
-            new Color(230, 231, 226, 255),
+            formal ? Palette.officeWall : new Color(230, 231, 226, 255),
             24,
             Palette.paleBlue,
         );
@@ -398,30 +425,40 @@ export class GameView extends Component {
             'OfficeFloor',
             660,
             workspaceLayout.floorHeight,
-            new Color(215, 220, 218, 255),
+            formal ? Palette.officeFloor : new Color(215, 220, 218, 255),
             22,
             new Color(194, 205, 207, 255),
             3,
         );
         floor.setPosition(0, workspaceLayout.floorY);
+        if (formal) {
+            paintFormalOfficeFloor(floor);
+            const workspaceDepth = createUiNode(
+                workspace,
+                'WorkspaceDepth',
+                660,
+                layout.workspaceHeight,
+            );
+            paintWorkspaceDepth(workspaceDepth, workspaceLayout);
+        }
         const targetBand = createRoundedPanel(
             workspace,
             'TargetBand',
             650,
             workspaceLayout.targetBandHeight,
-            new Color(205, 215, 218, 255),
+            formal ? Palette.storageBand : new Color(205, 215, 218, 255),
             20,
             Palette.blueGray,
             2,
         );
         targetBand.setPosition(0, workspaceLayout.targetBandY);
-        const targetBandTitle = createLabel(targetBand, 'TargetBandTitle', '收纳处理区', 190, 34, {
+        const targetBandTitle = createLabel(targetBand, 'TargetBandTitle', formal ? '快速收纳区' : '收纳处理区', 190, 34, {
             fontSize: 19,
             color: Palette.blueGrayDark,
             bold: true,
             wrap: false,
         });
-        targetBandTitle.node.setPosition(-210, workspaceLayout.targetBandHeight / 2 - 25);
+        targetBandTitle.node.setPosition(0, workspaceLayout.targetBandHeight / 2 - 25);
 
         const workspaceContent = createUiNode(
             workspace,
@@ -447,6 +484,9 @@ export class GameView extends Component {
             Palette.blueGray,
         );
         desk.setPosition(0, WORKSPACE_DESK_BASELINE_Y);
+        if (formal) {
+            paintFormalDesk(desk);
+        }
         const deskTitle = createLabel(
             workspaceContent,
             'DeskTitle',
@@ -473,7 +513,7 @@ export class GameView extends Component {
                 16,
             );
             const zone = zoneNode.addComponent(DropZone);
-            zone.configure(zoneConfig);
+            zone.configure(zoneConfig, formal);
             this._dropZones.set(zoneConfig.id, zone);
         }
 
@@ -493,6 +533,7 @@ export class GameView extends Component {
                 this._actions.onItemAction,
                 (message, success) => this.showToast(message, success),
                 this._audio,
+                formal,
             );
             this._workItems.set(itemConfig.id, item);
             item.setAvailable(snapshot.activeItemIds.indexOf(itemConfig.id) >= 0);
@@ -503,7 +544,7 @@ export class GameView extends Component {
         }
         const helper = createLabel(this._gameLayer, 'DragHelper', '轻触电脑 · 长按拖动物品', 500, 38, {
             fontSize: 20,
-            color: Palette.muted,
+            color: formal ? Palette.mutedLight : Palette.muted,
             wrap: false,
         });
         helper.node.setPosition(0, layout.helperY);
@@ -515,10 +556,30 @@ export class GameView extends Component {
             return;
         }
         this._introOverlay = this.createBlockingOverlay('IntroOverlay', Palette.overlay);
-        const card = createRoundedPanel(this._introOverlay, 'IntroCard', 650, 850, Palette.panel, 30, Palette.warning, 4);
+        const formal = level.order === 1;
+        const card = createRoundedPanel(
+            this._introOverlay,
+            'IntroCard',
+            650,
+            850,
+            Palette.panel,
+            30,
+            formal ? Palette.blue : Palette.warning,
+            4,
+        );
+        if (formal) {
+            const eyebrow = createRoundedPanel(card, 'UrgentBadge', 170, 46, Palette.warningPale, 23);
+            eyebrow.setPosition(0, 378);
+            createLabel(eyebrow, 'UrgentText', '办公室警报', 150, 34, {
+                fontSize: 18,
+                color: Palette.warning,
+                bold: true,
+                wrap: false,
+            });
+        }
         const title = createLabel(card, 'LevelName', `第${level.order}关 · ${level.name}`, 570, 72, {
             fontSize: 40,
-            color: Palette.warning,
+            color: formal ? Palette.blueGrayDark : Palette.warning,
             bold: true,
             wrap: false,
         });
@@ -547,9 +608,9 @@ export class GameView extends Component {
             });
             label.node.setPosition(0, 68 - index * 58);
         }
-        const beginButton = this.createButton(card, 'BeginButton', '马上整理', this._actions.onBeginLevel, 300, 94);
+        const beginButton = this.createButton(card, 'BeginButton', '马上整理', this._actions.onBeginLevel, 300, 94, 'primary');
         beginButton.setPosition(155, -337);
-        const backButton = this.createButton(card, 'BackButton', '返回关卡', this._actions.onAbortLevel, 220, 94, Palette.blueGray);
+        const backButton = this.createButton(card, 'BackButton', '返回关卡', this._actions.onAbortLevel, 220, 94, 'secondary');
         backButton.setPosition(-165, -337);
     }
 
@@ -569,17 +630,9 @@ export class GameView extends Component {
         action: () => void,
         width: number,
         height: number,
-        color: Color = Palette.blue,
+        variant: ThemeButtonVariant = 'primary',
     ): Node {
-        const button = createRoundedPanel(parent, name, width, height, color, 24);
-        createLabel(button, 'ButtonText', text, width - 24, height - 16, {
-            fontSize: Math.min(32, height * 0.34),
-            color: Palette.white,
-            bold: true,
-            wrap: false,
-        });
-        button.addComponent(ActionButton).configure(action);
-        return button;
+        return createThemedButton(parent, name, text, action, width, height, variant).node;
     }
 
     private setLevelActive(active: boolean): void {
@@ -613,6 +666,7 @@ export class GameView extends Component {
         this._taskView = null;
         this._workItems.clear();
         this._dropZones.clear();
+        this._formalLevel = false;
     }
 
     private hideToast(): void {

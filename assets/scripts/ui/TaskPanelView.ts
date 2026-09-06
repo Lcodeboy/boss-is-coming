@@ -11,12 +11,20 @@ export class TaskPanelView extends Component {
     private readonly _completedTaskIds = new Set<string>();
     private _countLabel: Label | null = null;
     private _tasks: readonly LevelTaskConfig[] = [];
+    private _formal = false;
 
-    public initialize(tasks: readonly LevelTaskConfig[], activeTaskIds: readonly string[]): void {
+    public initialize(tasks: readonly LevelTaskConfig[], activeTaskIds: readonly string[], formal = false): void {
         this._tasks = tasks;
+        this._formal = formal;
         this._activeTaskIds.clear();
         activeTaskIds.forEach((taskId) => this._activeTaskIds.add(taskId));
-        drawRoundedPanel(this.node, Palette.panel, 20, Palette.paleBlue, 3);
+        drawRoundedPanel(
+            this.node,
+            Palette.panel,
+            20,
+            formal ? Palette.blueGray : Palette.paleBlue,
+            formal ? 2 : 3,
+        );
         this._countLabel = createLabel(this.node, 'TaskCount', '', 250, 42, {
             fontSize: 24,
             color: Palette.ink,
@@ -90,7 +98,7 @@ export class TaskPanelView extends Component {
         }
         const completed = this._completedTaskIds.has(taskId);
         label.string = `${completed ? '✓' : '○'} ${task.prompt}`;
-        label.color = completed ? Palette.success : Palette.muted;
+        label.color = completed ? Palette.success : this._formal ? Palette.ink : Palette.muted;
     }
 
     private refreshCount(): void {

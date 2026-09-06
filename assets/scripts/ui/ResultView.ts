@@ -1,6 +1,8 @@
 import { _decorator, Component, Label, Node } from 'cc';
 import { ActionButton } from './ActionButton';
 import { createLabel, createRoundedPanel, drawRoundedPanel, Palette } from './UIFactory';
+import { createThemedButton, paintButton } from './VisualFactory';
+import { RESULT_VISUAL_METRICS } from './VisualMetrics';
 
 const { ccclass } = _decorator;
 
@@ -25,6 +27,7 @@ export class ResultView extends Component {
     private _titleLabel: Label | null = null;
     private _summaryLabel: Label | null = null;
     private _evaluationLabel: Label | null = null;
+    private _evaluationPanel: Node | null = null;
     private _nextNode: Node | null = null;
     private _nextButton: ActionButton | null = null;
     private _retryNode: Node | null = null;
@@ -32,10 +35,35 @@ export class ResultView extends Component {
     private _retryButton: ActionButton | null = null;
     private _returnNode: Node | null = null;
     private _returnButton: ActionButton | null = null;
+    private _statusBadge: Node | null = null;
+    private _statusBadgeLabel: Label | null = null;
+    private _formal = false;
 
     public initialize(actions: ResultActions): void {
         drawRoundedPanel(this.node, Palette.overlay, 0);
-        this._card = createRoundedPanel(this.node, 'ResultCard', 680, 680, Palette.panel, 30);
+        this._card = createRoundedPanel(
+            this.node,
+            'ResultCard',
+            680,
+            RESULT_VISUAL_METRICS.cardHeight,
+            Palette.panel,
+            30,
+        );
+        this._statusBadge = createRoundedPanel(
+            this._card,
+            'StatusBadge',
+            RESULT_VISUAL_METRICS.statusHeight,
+            RESULT_VISUAL_METRICS.statusHeight,
+            Palette.success,
+            RESULT_VISUAL_METRICS.statusHeight / 2,
+        );
+        this._statusBadge.setPosition(0, RESULT_VISUAL_METRICS.statusCenterY);
+        this._statusBadgeLabel = createLabel(this._statusBadge, 'StatusIcon', '✓', 60, 60, {
+            fontSize: 38,
+            color: Palette.white,
+            bold: true,
+            wrap: false,
+        });
         this._titleLabel = createLabel(this._card, 'ResultTitle', '挑战成功', 560, 90, {
             fontSize: 50,
             color: Palette.success,
@@ -48,24 +76,43 @@ export class ResultView extends Component {
             bold: true,
         });
         this._summaryLabel.node.setPosition(0, 118);
-        const evaluationPanel = createRoundedPanel(this._card, 'EvaluationPanel', 560, 150, Palette.paleBlue, 20);
-        evaluationPanel.setPosition(0, -5);
-        this._evaluationLabel = createLabel(evaluationPanel, 'Evaluation', '', 500, 118, {
+        this._evaluationPanel = createRoundedPanel(this._card, 'EvaluationPanel', 560, 150, Palette.paleBlue, 20);
+        this._evaluationPanel.setPosition(0, -5);
+        this._evaluationLabel = createLabel(this._evaluationPanel, 'Evaluation', '', 500, 118, {
             fontSize: 26,
             color: Palette.ink,
         });
 
-        const next = this.createResultButton(this._card, 'NextButton', '下一关', actions.onNextLevel);
+        const next = this.createResultButton(this._card, 'NextButton', '下一关', actions.onNextLevel, 'primary');
         this._nextNode = next.node;
         this._nextButton = next.button;
-        const retry = this.createResultButton(this._card, 'RetryButton', '重新挑战', actions.onRetry);
+        const retry = this.createResultButton(this._card, 'RetryButton', '重新挑战', actions.onRetry, 'secondary');
         this._retryNode = retry.node;
         this._retryLabel = retry.label;
         this._retryButton = retry.button;
-        const back = this.createResultButton(this._card, 'ReturnButton', '返回关卡', actions.onReturnToLevels);
+        const back = this.createResultButton(this._card, 'ReturnButton', '返回关卡', actions.onReturnToLevels, 'secondary');
         this._returnNode = back.node;
         this._returnButton = back.button;
         this.node.active = false;
+    }
+
+    public setFormalTheme(formal: boolean): void {
+        this._formal = formal;
+        if (this._card !== null) {
+            drawRoundedPanel(
+                this._card,
+                Palette.panel,
+                30,
+                formal ? Palette.blueGray : Palette.paleBlue,
+                formal ? 2 : 0,
+            );
+        }
+        if (this._statusBadge !== null) {
+            this._statusBadge.active = formal;
+        }
+        this._titleLabel?.node.setPosition(0, formal ? RESULT_VISUAL_METRICS.titleCenterY : 238);
+        this._summaryLabel?.node.setPosition(0, formal ? RESULT_VISUAL_METRICS.summaryCenterY : 118);
+        this._evaluationPanel?.setPosition(0, formal ? RESULT_VISUAL_METRICS.evaluationCenterY : -5);
     }
 
     public show(result: ResultPresentation): void {
@@ -73,11 +120,15 @@ export class ResultView extends Component {
             return;
         }
         const statusColor = result.success ? Palette.success : Palette.warning;
-        drawRoundedPanel(this._card, Palette.panel, 30, statusColor, 4);
+        drawRoundedPanel(this._card, Palette.panel, 30, this._formal ? Palette.blueGray : statusColor, this._formal ? 2 : 4);
         this._titleLabel.string = result.success ? '挑战成功' : '挑战失败';
         this._titleLabel.color = statusColor;
         this._summaryLabel.string = `完成任务  ${result.completedCount}/${result.totalCount}\n剩余时间  ${Math.max(0, Math.ceil(result.remainingSeconds))} 秒`;
         this._evaluationLabel.string = result.evaluation;
+        if (this._statusBadge !== null && this._statusBadgeLabel !== null) {
+            drawRoundedPanel(this._statusBadge, statusColor, RESULT_VISUAL_METRICS.statusHeight / 2);
+            this._statusBadgeLabel.string = result.success ? '✓' : '!';
+        }
         this.layoutButtons(result);
         this.setButtonsEnabled(true);
         this.node.active = true;
@@ -93,7 +144,13 @@ export class ResultView extends Component {
         }
         const showNext = result.success && result.hasNextLevel;
         this._nextNode.active = showNext;
+        if (showNext) {
+            paintButton(this._nextNode, 'primary');
+        }
         this._retryLabel.string = result.success && !result.hasNextLevel ? '再次挑战' : '重新挑战';
+        paintButton(this._retryNode, result.success && showNext ? 'secondary' : 'primary');
+        this._retryLabel.color = result.success && showNext ? Palette.blueGrayDark : Palette.white;
+        paintButton(this._returnNode, 'secondary');
         if (showNext) {
             this._nextNode.setPosition(-210, -245);
             this._retryNode.setPosition(0, -245);
@@ -104,19 +161,22 @@ export class ResultView extends Component {
         }
     }
 
-    private createResultButton(parent: Node, name: string, text: string, action: () => void): {
+    private createResultButton(
+        parent: Node,
+        name: string,
+        text: string,
+        action: () => void,
+        variant: 'primary' | 'secondary',
+    ): {
         readonly node: Node;
         readonly label: Label;
         readonly button: ActionButton;
     } {
-        const node = createRoundedPanel(parent, name, 190, 94, Palette.blue, 24);
-        const label = createLabel(node, 'Text', text, 170, 72, {
-            fontSize: 25,
-            color: Palette.white,
-            bold: true,
-            wrap: false,
-        });
-        const button = node.addComponent(ActionButton);
+        const themed = createThemedButton(parent, name, text, action, 190, 94, variant);
+        themed.label.node.name = 'Text';
+        const node = themed.node;
+        const label = themed.label;
+        const button = themed.button;
         button.configure(() => {
             this.setButtonsEnabled(false);
             action();

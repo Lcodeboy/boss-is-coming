@@ -58,6 +58,19 @@ export interface WorkspaceLayout {
     readonly targetBandHeight: number;
 }
 
+export interface StartPageLayout {
+    readonly titleY: number;
+    readonly subtitleY: number;
+    readonly elevatorY: number;
+    readonly elevatorHeight: number;
+    readonly elevatorTop: number;
+    readonly elevatorBottom: number;
+    readonly ledY: number;
+    readonly alertY: number;
+    readonly startButtonY: number;
+    readonly bossY: number;
+}
+
 export const WORKSPACE_BASE_CONTENT_HEIGHT = 690;
 export const WORKSPACE_TITLE_BASELINE_Y = 306;
 export const WORKSPACE_TITLE_HEIGHT = 42;
@@ -160,11 +173,7 @@ export function calculateLevelSelectLayout(
         };
     }
 
-    const entryHeight = clamp(
-        (listHeight - minimumGap * Math.max(0, safeEntryCount - 1)) / safeEntryCount,
-        150,
-        220,
-    );
+    const entryHeight = clamp(listHeight / safeEntryCount - minimumGap, 108, 126);
     const entryGap = safeEntryCount > 1
         ? Math.max(minimumGap, (listHeight - entryHeight * safeEntryCount) / (safeEntryCount - 1))
         : 0;
@@ -198,6 +207,27 @@ export function calculateWorkspaceLayout(workspaceHeight: number): WorkspaceLayo
         floorHeight,
         targetBandY,
         targetBandHeight,
+    };
+}
+
+/** 开始页在安全区内分配标题、电梯和主按钮，长屏增加电梯门与墙面高度。 */
+export function calculateStartPageLayout(viewport: FixedWidthViewport): StartPageLayout {
+    const elevatorBottom = viewport.safeBottom + 180;
+    const desiredElevatorTop = viewport.safeTop - 250;
+    const elevatorHeight = Math.min(1200, Math.max(760, desiredElevatorTop - elevatorBottom));
+    const elevatorY = elevatorBottom + elevatorHeight / 2;
+    const elevatorTop = elevatorY + elevatorHeight / 2;
+    return {
+        titleY: viewport.safeTop - 82,
+        subtitleY: viewport.safeTop - 154,
+        elevatorY,
+        elevatorHeight,
+        elevatorTop,
+        elevatorBottom,
+        ledY: elevatorTop + 44,
+        alertY: elevatorTop - 56,
+        startButtonY: viewport.safeBottom + 86,
+        bossY: viewport.safeBottom + 238,
     };
 }
 

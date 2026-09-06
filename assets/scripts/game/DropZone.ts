@@ -1,6 +1,7 @@
-import { _decorator, Color, Component, Label, Node, UITransform, Vec2, Vec3 } from 'cc';
+import { _decorator, Component, Node, UITransform, Vec2, Vec3 } from 'cc';
 import { DropZoneConfig } from '../data/LevelTypes';
-import { createLabel, drawRoundedPanel, Palette, requireTransform } from '../ui/UIFactory';
+import { DropZoneVisual } from '../ui/DropZoneVisual';
+import { requireTransform } from '../ui/UIFactory';
 
 const { ccclass } = _decorator;
 
@@ -9,25 +10,18 @@ export class DropZone extends Component {
     private readonly _worldCenter = new Vec2();
     private readonly _worldPosition = new Vec3();
     private _config: DropZoneConfig | null = null;
-    private _label: Label | null = null;
+    private _visual: DropZoneVisual | null = null;
 
     public get zoneId(): string {
         return this._config?.id ?? '';
     }
 
-    public configure(config: DropZoneConfig): void {
+    public configure(config: DropZoneConfig, formalVisuals = false): void {
         this._config = config;
         this.node.setPosition(config.position.x, config.position.y);
         requireTransform(this.node).setContentSize(config.size.width, config.size.height);
-        if (this._label === null) {
-            this._label = createLabel(this.node, 'ZoneLabel', config.label, config.size.width - 16, config.size.height - 12, {
-                fontSize: 22,
-                color: Palette.blueGrayDark,
-                bold: true,
-            });
-        } else {
-            this._label.string = config.label;
-        }
+        this._visual = this.node.addComponent(DropZoneVisual);
+        this._visual.initialize(config, formalVisuals);
         this.resetVisual();
     }
 
@@ -38,6 +32,20 @@ export class DropZone extends Component {
         }
         this._worldCenter.set(itemNode.worldPosition.x, itemNode.worldPosition.y);
         return transform.getBoundingBoxToWorld().contains(this._worldCenter);
+    }
+
+    /** 仅用于拖拽靠近时的视觉高亮，不改变 contains 的正式投放判定。 */
+    public isNear(itemNode: Node, margin: number): boolean {
+        const transform = this.node.getComponent(UITransform);
+        if (transform === null) {
+            return false;
+        }
+        const bounds = transform.getBoundingBoxToWorld();
+        const position = itemNode.worldPosition;
+        return position.x >= bounds.xMin - margin
+            && position.x <= bounds.xMax + margin
+            && position.y >= bounds.yMin - margin
+            && position.y <= bounds.yMax + margin;
     }
 
     public copySnapPosition(targetParent: Node, output: Vec3): void {
@@ -51,10 +59,7 @@ export class DropZone extends Component {
     }
 
     public markCompleted(): void {
-        drawRoundedPanel(this.node, Palette.successPale, 16, Palette.success, 4);
-        if (this._label !== null) {
-            this._label.color = Palette.success;
-        }
+        this._visual?.setCompleted(true);
     }
 
     public setProgress(completed: number, total: number): void {
@@ -63,24 +68,14 @@ export class DropZone extends Component {
             return;
         }
         const safeCompleted = Math.max(0, Math.min(total, completed));
-        if (safeCompleted >= total) {
-            this.markCompleted();
-            if (this._label !== null) {
-                this._label.string = config.progressCompleteLabel ?? `${config.label} ${total}/${total}`;
-            }
-            return;
-        }
-        this.resetVisual();
-        if (this._label !== null) {
-            this._label.string = `${config.label} ${safeCompleted}/${total}`;
-        }
+        this._visual?.setProgress(safeCompleted, total);
     }
 
     public resetVisual(): void {
-        drawRoundedPanel(this.node, new Color(226, 234, 238, 220), 16, Palette.blueGray, 3);
-        if (this._label !== null) {
-            this._label.string = this._config?.label ?? '';
-            this._label.color = Palette.blueGrayDark;
-        }
+        this._visual?.reset();
+    }
+
+    public setHighlighted(highlighted: boolean): void {
+        this._visual?.setHighlighted(highlighted);
     }
 }

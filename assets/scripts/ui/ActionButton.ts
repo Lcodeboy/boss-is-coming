@@ -1,4 +1,5 @@
 import { _decorator, Component, EventTouch, Node, Tween, tween, Vec3 } from 'cc';
+import { VisualTheme } from './VisualTheme';
 
 const { ccclass } = _decorator;
 
@@ -7,7 +8,7 @@ export type ButtonAction = () => void;
 @ccclass('ActionButton')
 export class ActionButton extends Component {
     private readonly _normalScale = new Vec3(1, 1, 1);
-    private readonly _pressedScale = new Vec3(0.97, 0.97, 1);
+    private readonly _pressedScale = new Vec3(0.955, 0.955, 1);
     private _action: ButtonAction | null = null;
     private _interactable = true;
 
@@ -30,7 +31,8 @@ export class ActionButton extends Component {
 
     protected override onDisable(): void {
         this.removeListeners();
-        this.restoreScale();
+        Tween.stopAllByTarget(this.node);
+        this.node.setScale(this._normalScale);
     }
 
     protected override onDestroy(): void {
@@ -45,7 +47,7 @@ export class ActionButton extends Component {
         }
         event.propagationStopped = true;
         Tween.stopAllByTarget(this.node);
-        tween(this.node).to(0.06, { scale: this._pressedScale }).start();
+        tween(this.node).to(VisualTheme.motion.pressSeconds, { scale: this._pressedScale }).start();
     }
 
     private onTouchEnd(event: EventTouch): void {
@@ -63,7 +65,7 @@ export class ActionButton extends Component {
 
     private restoreScale(): void {
         Tween.stopAllByTarget(this.node);
-        tween(this.node).to(0.08, { scale: this._normalScale }).start();
+        tween(this.node).to(VisualTheme.motion.releaseSeconds, { scale: this._normalScale }).start();
     }
 
     private removeListeners(): void {

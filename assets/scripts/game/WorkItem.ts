@@ -1,10 +1,7 @@
 import {
     _decorator,
-    Color,
     Component,
     EventTouch,
-    Graphics,
-    Label,
     Node,
     Tween,
     tween,
@@ -13,7 +10,8 @@ import {
 } from 'cc';
 import { AudioFeedback } from '../core/AudioFeedback';
 import { WorkItemConfig } from '../data/LevelTypes';
-import { createLabel, drawRoundedPanel, Palette, requireTransform } from '../ui/UIFactory';
+import { requireTransform } from '../ui/UIFactory';
+import { WorkItemVisual } from '../ui/WorkItemVisual';
 import { DropZone } from './DropZone';
 
 const { ccclass } = _decorator;
@@ -29,14 +27,17 @@ export class WorkItem extends Component {
     private readonly _normalScale = new Vec3(1, 1, 1);
     private readonly _selectedScale = new Vec3(1.06, 1.06, 1);
     private readonly _touchDelta = new Vec2();
+    private readonly _shakeLeft = new Vec3();
+    private readonly _shakeRight = new Vec3();
     private _config: WorkItemConfig | null = null;
     private _zones: readonly DropZone[] = [];
     private _canInteract: InteractionGuard | null = null;
     private _onCompleted: WorkItemCompleted | null = null;
     private _onMessage: WorkItemMessage | null = null;
     private _audio: AudioFeedback | null = null;
-    private _mainLabel: Label | null = null;
-    private _pageLabel: Label | null = null;
+    private _visual: WorkItemVisual | null = null;
+    private _highlightedZone: DropZone | null = null;
+    private _formalVisuals = false;
     private _completed = false;
     private _pressed = false;
     private _clickProgress = 0;
@@ -52,6 +53,7 @@ export class WorkItem extends Component {
         onCompleted: WorkItemCompleted,
         onMessage: WorkItemMessage,
         audio: AudioFeedback,
+        formalVisuals = false,
     ): void {
         this._config = config;
         this._zones = zones;
@@ -59,10 +61,12 @@ export class WorkItem extends Component {
         this._onCompleted = onCompleted;
         this._onMessage = onMessage;
         this._audio = audio;
+        this._formalVisuals = formalVisuals;
         requireTransform(this.node).setContentSize(config.size.width, config.size.height);
         this.node.setPosition(config.initialPosition.x, config.initialPosition.y);
         this._homePosition.set(this.node.position);
-        this.buildVisuals();
+        this._visual = this.node.addComponent(WorkItemVisual);
+        this._visual.initialize(config, formalVisuals);
         this.resetItem();
     }
 
@@ -78,9 +82,10 @@ export class WorkItem extends Component {
         this._completed = false;
         this._pressed = false;
         this._clickProgress = 0;
+        this.clearTargetHighlight();
         this.node.setScale(this._normalScale);
         this.node.setPosition(this._homePosition);
-        this.drawItem(false, false);
+        this._visual?.render(this._clickProgress, false, false);
     }
 
     public stopInteraction(): void {
@@ -88,6 +93,7 @@ export class WorkItem extends Component {
             return;
         }
         this._pressed = false;
+        this.clearTargetHighlight();
         this.returnHome();
     }
 
@@ -100,7 +106,11 @@ export class WorkItem extends Component {
 
     protected override onDisable(): void {
         this.removeListeners();
-        this.cancelInteraction();
+        Tween.stopAllByTarget(this.node);
+        this._pressed = false;
+        this.clearTargetHighlight();
+        this.node.setScale(this._normalScale);
+        this.node.setPosition(this._homePosition);
     }
 
     protected override onDestroy(): void {
@@ -110,6 +120,8 @@ export class WorkItem extends Component {
         this._onCompleted = null;
         this._onMessage = null;
         this._audio = null;
+        this._visual = null;
+        this.clearTargetHighlight();
     }
 
     private onTouchStart(event: EventTouch): void {
@@ -122,7 +134,7 @@ export class WorkItem extends Component {
         this.node.setSiblingIndex(this.node.parent?.children.length ?? 0);
         Tween.stopAllByTarget(this.node);
         tween(this.node).to(0.07, { scale: this._selectedScale }).start();
-        this.drawItem(false, true);
+        this._visual?.render(this._clickProgress, false, true);
         this._audio?.play('item-picked');
     }
 
@@ -137,6 +149,7 @@ export class WorkItem extends Component {
             this.node.position.y + this._touchDelta.y,
             this.node.position.z,
         );
+        this.refreshTargetHighlight();
     }
 
     private onTouchEnd(event: EventTouch): void {
@@ -146,6 +159,7 @@ export class WorkItem extends Component {
         }
         event.propagationStopped = true;
         this._pressed = false;
+        this.clearTargetHighlight();
         if (!this._canInteract?.()) {
             this.returnHome();
             return;
@@ -169,9 +183,9 @@ export class WorkItem extends Component {
             zone.markCompleted();
         }
         Tween.stopAllByTarget(this.node);
+        this._visual?.render(this._clickProgress, true, false);
         tween(this.node)
             .to(0.16, { position: this._snapPosition, scale: this._normalScale }, { easing: 'quadOut' })
-            .call(() => this.drawItem(true, false))
             .start();
         this.finishAction();
     }
@@ -181,6 +195,7 @@ export class WorkItem extends Component {
             return;
         }
         this._pressed = false;
+        this.clearTargetHighlight();
         this.returnHome();
     }
 
@@ -196,7 +211,7 @@ export class WorkItem extends Component {
         Tween.stopAllByTarget(this.node);
         tween(this.node)
             .to(0.1, { scale: this._normalScale })
-            .call(() => this.drawItem(completed, false))
+            .call(() => this._visual?.render(this._clickProgress, completed, false))
             .start();
         if (completed) {
             this.finishAction();
@@ -226,106 +241,39 @@ export class WorkItem extends Component {
 
     private returnHome(): void {
         Tween.stopAllByTarget(this.node);
+        this._visual?.render(this._clickProgress, false, false);
+        if (!this._formalVisuals) {
+            tween(this.node)
+                .to(0.2, { position: this._homePosition, scale: this._normalScale }, { easing: 'quadOut' })
+                .start();
+            return;
+        }
+        this._shakeLeft.set(this.node.position.x - 10, this.node.position.y, this.node.position.z);
+        this._shakeRight.set(this.node.position.x + 10, this.node.position.y, this.node.position.z);
         tween(this.node)
-            .to(0.2, { position: this._homePosition, scale: this._normalScale }, { easing: 'quadOut' })
-            .call(() => this.drawItem(false, false))
+            .to(0.045, { position: this._shakeRight })
+            .to(0.06, { position: this._shakeLeft })
+            .to(0.045, { position: this._shakeRight })
+            .to(0.18, { position: this._homePosition, scale: this._normalScale }, { easing: 'quadOut' })
             .start();
     }
 
-    private cancelInteraction(): void {
-        this.stopInteraction();
-    }
-
-    private buildVisuals(): void {
-        if (this._mainLabel !== null || this._config === null) {
+    private refreshTargetHighlight(): void {
+        const targetZoneId = this._config?.targetZoneId;
+        const highlighted = targetZoneId === undefined
+            ? null
+            : this._zones.find((zone) => zone.zoneId === targetZoneId && zone.isNear(this.node, 34)) ?? null;
+        if (highlighted === this._highlightedZone) {
             return;
         }
-        const config = this._config;
-        this.node.addComponent(Graphics);
-        if (config.visual === 'monitor') {
-            this._pageLabel = createLabel(this.node, 'MonitorPage', '', config.size.width - 34, config.size.height - 46, {
-                fontSize: 24,
-                color: Palette.white,
-                bold: true,
-                wrap: false,
-            });
-            this._pageLabel.node.setPosition(0, 8);
-            const clicks = Math.max(1, config.clickStates.length - 1);
-            this._mainLabel = createLabel(
-                this.node,
-                'MonitorHint',
-                clicks > 1 ? `点击 ${clicks} 次切换` : '点击切换页面',
-                config.size.width,
-                30,
-                { fontSize: 18, color: Palette.muted, wrap: false },
-            );
-            this._mainLabel.node.setPosition(0, -96);
-            return;
-        }
-        this._mainLabel = createLabel(this.node, 'ItemLabel', config.label, config.size.width - 10, config.size.height - 8, {
-            fontSize: config.visual === 'plant' ? 20 : 22,
-            color: config.visual === 'report-page' ? Palette.ink : Palette.white,
-            bold: true,
-            wrap: false,
-        });
+        this.clearTargetHighlight();
+        this._highlightedZone = highlighted;
+        this._highlightedZone?.setHighlighted(true);
     }
 
-    private drawItem(completed: boolean, selected: boolean): void {
-        const config = this._config;
-        if (config === null) {
-            return;
-        }
-        const fill = this.itemFill(config.visual, completed);
-        const stroke = completed ? Palette.success : selected ? Palette.warning : Palette.blueGrayDark;
-        const lineWidth = selected ? 6 : completed ? 5 : 3;
-        drawRoundedPanel(this.node, fill, this.isDocument(config.visual) ? 8 : 16, stroke, lineWidth);
-        if (this._pageLabel !== null) {
-            const stateIndex = Math.min(this._clickProgress, config.clickStates.length - 1);
-            this._pageLabel.string = config.clickStates[stateIndex] ?? config.label;
-        }
-        if (this._mainLabel !== null && config.visual !== 'monitor') {
-            this._mainLabel.string = completed ? `✓ ${config.label}` : config.label;
-            this._mainLabel.color = completed || config.visual !== 'report-page' ? Palette.white : Palette.ink;
-        }
-    }
-
-    private isDocument(visual: WorkItemConfig['visual']): boolean {
-        return visual === 'contract'
-            || visual === 'contract-red'
-            || visual === 'contract-yellow'
-            || visual === 'report-page'
-            || visual === 'bound-report'
-            || visual === 'visitor-badge';
-    }
-
-    private itemFill(visual: WorkItemConfig['visual'], completed: boolean): Color {
-        if (completed) {
-            return Palette.success;
-        }
-        switch (visual) {
-            case 'monitor':
-                return new Color(49, 65, 78, 255);
-            case 'console':
-                return new Color(94, 88, 132, 255);
-            case 'snack':
-                return new Color(214, 119, 48, 255);
-            case 'contract':
-                return Palette.contractBlue;
-            case 'contract-red':
-                return new Color(190, 83, 76, 255);
-            case 'contract-yellow':
-                return new Color(205, 161, 55, 255);
-            case 'plant':
-                return new Color(72, 145, 103, 255);
-            case 'report-page':
-                return new Color(235, 235, 226, 255);
-            case 'bound-report':
-                return new Color(70, 111, 151, 255);
-            case 'coffee':
-                return new Color(151, 95, 57, 255);
-            case 'visitor-badge':
-                return new Color(52, 150, 157, 255);
-        }
+    private clearTargetHighlight(): void {
+        this._highlightedZone?.setHighlighted(false);
+        this._highlightedZone = null;
     }
 
     private removeListeners(): void {
