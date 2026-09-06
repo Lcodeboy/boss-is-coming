@@ -41,19 +41,22 @@
       "id": "drawer",
       "label": "抽屉",
       "position": { "x": -235, "y": -225 },
-      "size": { "width": 175, "height": 112 }
+      "size": { "width": 175, "height": 112 },
+      "visual": "drawer"
     },
     {
       "id": "trash",
       "label": "垃圾桶",
       "position": { "x": 270, "y": -225 },
-      "size": { "width": 120, "height": 148 }
+      "size": { "width": 120, "height": 148 },
+      "visual": "trash"
     },
     {
       "id": "review",
       "label": "待检查区",
       "position": { "x": 230, "y": 130 },
-      "size": { "width": 190, "height": 130 }
+      "size": { "width": 190, "height": 130 },
+      "visual": "review-tray"
     }
   ],
   "items": [
@@ -84,6 +87,9 @@
       "label": "检查文件",
       "interaction": "drag",
       "visual": "contract",
+      "visualVariant": "file-current",
+      "visualBadge": "待查",
+      "visualCode": "18F",
       "initialPosition": { "x": 190, "y": -72 },
       "size": { "width": 135, "height": 88 },
       "actionId": "prepare-contract",
@@ -116,6 +122,7 @@
       "id": "coworker-coffee",
       "triggerRemainingSeconds": 16,
       "notification": "同事把咖啡放你桌上了",
+      "messageStyle": "coworker",
       "activateTaskIds": ["coffee"],
       "activateItemIds": ["coffee"]
     }

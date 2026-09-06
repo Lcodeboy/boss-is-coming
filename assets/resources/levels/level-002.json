@@ -40,19 +40,22 @@
       "id": "drawer",
       "label": "抽屉",
       "position": { "x": -240, "y": -225 },
-      "size": { "width": 170, "height": 112 }
+      "size": { "width": 170, "height": 112 },
+      "visual": "drawer"
     },
     {
       "id": "trash",
       "label": "垃圾桶",
       "position": { "x": 270, "y": -225 },
-      "size": { "width": 118, "height": 145 }
+      "size": { "width": 118, "height": 145 },
+      "visual": "trash"
     },
     {
       "id": "review",
       "label": "待检查区",
       "position": { "x": 235, "y": 132 },
-      "size": { "width": 190, "height": 128 }
+      "size": { "width": 190, "height": 128 },
+      "visual": "review-tray"
     }
   ],
   "items": [
@@ -94,6 +97,9 @@
       "label": "蓝色文件",
       "interaction": "drag",
       "visual": "contract",
+      "visualVariant": "file-current",
+      "visualBadge": "本期",
+      "visualCode": "待审",
       "initialPosition": { "x": 215, "y": -68 },
       "size": { "width": 106, "height": 76 },
       "actionId": "prepare-blue-contract",
@@ -105,6 +111,9 @@
       "label": "红色文件",
       "interaction": "drag",
       "visual": "contract-red",
+      "visualVariant": "file-archive",
+      "visualBadge": "旧档",
+      "visualCode": "01",
       "initialPosition": { "x": 42, "y": -65 },
       "size": { "width": 106, "height": 76 },
       "wrongDropFeedback": "老板要的不是这份"
@@ -114,6 +123,9 @@
       "label": "黄色文件",
       "interaction": "drag",
       "visual": "contract-yellow",
+      "visualVariant": "file-reference",
+      "visualBadge": "参考",
+      "visualCode": "R2",
       "initialPosition": { "x": 130, "y": -150 },
       "size": { "width": 106, "height": 76 },
       "wrongDropFeedback": "老板要的不是这份"

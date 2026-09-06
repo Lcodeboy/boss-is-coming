@@ -33,6 +33,7 @@ import { LevelConfig } from '../data/LevelTypes';
 import { DropZone } from '../game/DropZone';
 import { WorkItem } from '../game/WorkItem';
 import { BossApproachView } from './BossApproachView';
+import { EventMessageView } from './EventMessageView';
 import { InspectionFinished, InspectionStep, InspectionView } from './InspectionView';
 import { LevelSelectView } from './LevelSelectView';
 import { ResultActions, ResultPresentation, ResultView } from './ResultView';
@@ -77,6 +78,7 @@ export class GameView extends Component {
     private _tutorialView: TutorialView | null = null;
     private _inspectionView: InspectionView | null = null;
     private _resultView: ResultView | null = null;
+    private _eventMessageView: EventMessageView | null = null;
     private readonly _workItems = new Map<string, WorkItem>();
     private readonly _dropZones = new Map<string, DropZone>();
     private _viewport: FixedWidthViewport = calculateFixedWidthViewport(
@@ -202,12 +204,13 @@ export class GameView extends Component {
             this._dropZones.get(progress.zoneId)?.setProgress(progress.completed, progress.total);
         }
         for (const event of update.triggeredEvents) {
-            this.showToast(event.notification, false, 1.7);
+            this._eventMessageView?.show(event.notification, event.messageStyle);
         }
     }
 
     public playInspection(steps: readonly InspectionStep[], onFinished: InspectionFinished): void {
         this.hideToast();
+        this._eventMessageView?.cancel();
         for (const item of this._workItems.values()) {
             item.stopInteraction();
         }
@@ -388,7 +391,7 @@ export class GameView extends Component {
         }
         const layout = calculatePortraitGameLayout(this._viewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
         this._gameLayer = createUiNode(this._gameRoot, 'GameLayer', DESIGN_WIDTH, this._viewport.height);
-        const formal = level.order === 1;
+        const formal = true;
         const bossNode = createRoundedPanel(this._gameLayer, 'BossApproach', 680, 190, Palette.panel, 22);
         bossNode.setPosition(0, layout.bossY);
         this._bossView = bossNode.addComponent(BossApproachView);
@@ -517,7 +520,7 @@ export class GameView extends Component {
             this._dropZones.set(zoneConfig.id, zone);
         }
 
-        const zones = [...this._dropZones.values()];
+        const zones = Array.from(this._dropZones.values());
         for (const itemConfig of level.items) {
             const itemNode = createUiNode(
                 workspaceContent,
@@ -548,6 +551,10 @@ export class GameView extends Component {
             wrap: false,
         });
         helper.node.setPosition(0, layout.helperY);
+        const eventMessageNode = createUiNode(this._gameLayer, 'EventMessage', 500, 88);
+        eventMessageNode.setPosition(105, layout.workspaceY + layout.workspaceHeight / 2 - 82);
+        this._eventMessageView = eventMessageNode.addComponent(EventMessageView);
+        this._eventMessageView.initialize();
         this._gameLayer.active = false;
     }
 
@@ -651,10 +658,13 @@ export class GameView extends Component {
         this._tutorialView?.hide();
         this._inspectionView?.cancel();
         this._resultView?.hide();
+        this._eventMessageView?.cancel();
         this.hideToast();
     }
 
     private teardownLevel(): void {
+        this._eventMessageView?.cancel();
+        this._eventMessageView = null;
         this._introOverlay?.destroy();
         this._introOverlay = null;
         if (this._gameLayer !== null) {

@@ -5,6 +5,7 @@ import {
     WorkspaceLayout,
     WORKSPACE_DESK_HEIGHT,
 } from '../core/ViewportLayout';
+import { EventMessageStyle } from '../data/LevelTypes';
 import { ActionButton, ButtonAction } from './ActionButton';
 import { createLabel, createUiNode, requireTransform } from './UIFactory';
 import { Palette, ThemeButtonVariant, VisualTheme } from './VisualTheme';
@@ -250,6 +251,46 @@ export function paintWorkspaceDepth(node: Node, layout: WorkspaceLayout): void {
     graphics.circle(-86, chairCenterY - 138, 13);
     graphics.circle(86, chairCenterY - 138, 13);
     graphics.fill();
+}
+
+/** 绘制定时事件消息气泡；节点不注册输入事件。 */
+export function paintEventMessageBubble(node: Node, style: EventMessageStyle): void {
+    const transform = requireTransform(node);
+    const width = transform.contentSize.width;
+    const height = transform.contentSize.height;
+    const graphics = node.getComponent(Graphics) ?? node.addComponent(Graphics);
+    const accent = style === 'boss'
+        ? Palette.warning
+        : style === 'coworker' ? Palette.messageCoworker : Palette.blue;
+    graphics.clear();
+    graphics.fillColor = Palette.shadow;
+    graphics.roundRect(-width / 2 + 5, -height / 2 - 7, width - 10, height, 22);
+    graphics.fill();
+    graphics.fillColor = Palette.panelStrong;
+    graphics.roundRect(-width / 2, -height / 2, width, height, 22);
+    graphics.fill();
+    graphics.fillColor = accent;
+    graphics.roundRect(-width / 2, -height / 2, 12, height, 6);
+    graphics.circle(-width / 2 + 44, 0, 24);
+    graphics.fill();
+    const pointerX = -width / 2 + 44;
+    graphics.moveTo(pointerX - 18, -height / 2 + 2);
+    graphics.lineTo(pointerX, -height / 2 - 16);
+    graphics.lineTo(pointerX + 18, -height / 2 + 2);
+    graphics.close();
+    graphics.fill();
+    graphics.fillColor = Palette.white;
+    if (style === 'boss') {
+        graphics.roundRect(-width / 2 + 34, -8, 20, 20, 5);
+        graphics.fill();
+        graphics.fillColor = accent;
+        graphics.roundRect(-width / 2 + 38, 12, 12, 7, 3);
+        graphics.fill();
+    } else {
+        graphics.circle(-width / 2 + 44, 7, 8);
+        graphics.roundRect(-width / 2 + 34, -16, 20, 17, 8);
+        graphics.fill();
+    }
 }
 
 function buttonFill(variant: ThemeButtonVariant): Color {

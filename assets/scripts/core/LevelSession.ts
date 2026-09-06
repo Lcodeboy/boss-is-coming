@@ -133,7 +133,7 @@ export class LevelSession {
             .map((result) => result.task.id);
         return {
             activeTaskIds: this._taskTracker.activeTaskIds,
-            activeItemIds: [...this._activeItemIds],
+            activeItemIds: Array.from(this._activeItemIds),
             completedTaskIds,
             zoneProgress: this.createZoneProgress(),
         };

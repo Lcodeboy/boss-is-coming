@@ -59,7 +59,7 @@ export class TaskTracker {
     }
 
     public get activeTaskIds(): readonly string[] {
-        return [...this._activeTaskIds];
+        return Array.from(this._activeTaskIds);
     }
 
     public createResults(): readonly TaskResult[] {

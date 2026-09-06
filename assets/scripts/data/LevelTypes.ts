@@ -22,6 +22,25 @@ export type ItemVisual =
     | 'coffee'
     | 'visitor-badge';
 
+export type ItemVisualVariant =
+    | 'file-current'
+    | 'file-archive'
+    | 'file-reference'
+    | 'report-bars'
+    | 'report-line'
+    | 'report-donut'
+    | 'monitor-two-step';
+
+export type DropZoneVisual =
+    | 'drawer'
+    | 'trash'
+    | 'review-tray'
+    | 'report-folder'
+    | 'badge-stand'
+    | 'compat';
+
+export type EventMessageStyle = 'coworker' | 'boss' | 'neutral';
+
 export interface LevelTaskConfig {
     readonly id: string;
     readonly prompt: string;
@@ -36,6 +55,7 @@ export interface DropZoneConfig {
     readonly label: string;
     readonly position: PointData;
     readonly size: SizeData;
+    readonly visual: DropZoneVisual;
     readonly progressActionIds: readonly string[];
     readonly progressCompleteLabel?: string;
 }
@@ -45,6 +65,9 @@ export interface WorkItemConfig {
     readonly label: string;
     readonly interaction: ItemInteraction;
     readonly visual: ItemVisual;
+    readonly visualVariant?: ItemVisualVariant;
+    readonly visualBadge?: string;
+    readonly visualCode?: string;
     readonly initialPosition: PointData;
     readonly size: SizeData;
     readonly actionId?: string;
@@ -62,6 +85,7 @@ export interface LevelTimedEventConfig {
     readonly id: string;
     readonly triggerRemainingSeconds: number;
     readonly notification: string;
+    readonly messageStyle: EventMessageStyle;
     readonly activateTaskIds: readonly string[];
     readonly activateItemIds: readonly string[];
 }

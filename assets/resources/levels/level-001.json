@@ -45,6 +45,7 @@
       "label": "抽屉\n收纳私人物品",
       "position": { "x": -225, "y": -225 },
       "size": { "width": 190, "height": 112 },
+      "visual": "drawer",
       "progressActionIds": []
     },
     {
@@ -52,6 +53,7 @@
       "label": "垃圾桶",
       "position": { "x": 260, "y": -230 },
       "size": { "width": 126, "height": 150 },
+      "visual": "trash",
       "progressActionIds": []
     },
     {
@@ -59,6 +61,7 @@
       "label": "待检查区\n蓝色合同放这里",
       "position": { "x": 218, "y": 132 },
       "size": { "width": 220, "height": 142 },
+      "visual": "review-tray",
       "progressActionIds": []
     }
   ],

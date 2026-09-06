@@ -41,19 +41,22 @@
       "id": "drawer",
       "label": "抽屉",
       "position": { "x": -238, "y": -225 },
-      "size": { "width": 172, "height": 112 }
+      "size": { "width": 172, "height": 112 },
+      "visual": "drawer"
     },
     {
       "id": "review",
       "label": "待检查区",
       "position": { "x": 230, "y": 130 },
-      "size": { "width": 190, "height": 130 }
+      "size": { "width": 190, "height": 130 },
+      "visual": "review-tray"
     },
     {
       "id": "visitor-spot",
       "label": "访客证位置",
       "position": { "x": 235, "y": -220 },
-      "size": { "width": 185, "height": 112 }
+      "size": { "width": 185, "height": 112 },
+      "visual": "badge-stand"
     }
   ],
   "items": [
@@ -62,6 +65,7 @@
       "label": "电脑显示器",
       "interaction": "click",
       "visual": "monitor",
+      "visualVariant": "monitor-two-step",
       "initialPosition": { "x": -155, "y": 140 },
       "size": { "width": 250, "height": 140 },
       "actionId": "open-final-work-page",
@@ -85,6 +89,9 @@
       "label": "本期合同",
       "interaction": "drag",
       "visual": "contract",
+      "visualVariant": "file-current",
+      "visualBadge": "本期",
+      "visualCode": "09/26",
       "initialPosition": { "x": 175, "y": -65 },
       "size": { "width": 125, "height": 84 },
       "actionId": "prepare-current-contract",
@@ -96,6 +103,9 @@
       "label": "旧版合同",
       "interaction": "drag",
       "visual": "contract",
+      "visualVariant": "file-archive",
+      "visualBadge": "旧版",
+      "visualCode": "V1",
       "initialPosition": { "x": 35, "y": -65 },
       "size": { "width": 125, "height": 84 },
       "wrongDropFeedback": "老板要的不是这份"
@@ -126,6 +136,7 @@
       "id": "boss-adds-badge",
       "triggerRemainingSeconds": 18,
       "notification": "老板发来消息：再把访客证放在桌上",
+      "messageStyle": "boss",
       "activateTaskIds": ["visitor-badge"],
       "activateItemIds": ["visitor-badge"]
     }

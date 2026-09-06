@@ -26,6 +26,7 @@ export class WorkItem extends Component {
     private readonly _snapPosition = new Vec3();
     private readonly _normalScale = new Vec3(1, 1, 1);
     private readonly _selectedScale = new Vec3(1.06, 1.06, 1);
+    private readonly _revealScale = new Vec3(0.82, 0.82, 1);
     private readonly _touchDelta = new Vec2();
     private readonly _shakeLeft = new Vec3();
     private readonly _shakeRight = new Vec3();
@@ -71,9 +72,16 @@ export class WorkItem extends Component {
     }
 
     public setAvailable(available: boolean): void {
+        const shouldReveal = available && !this.node.active;
         this.node.active = available;
         if (available) {
             this.resetItem();
+            if (shouldReveal) {
+                this.node.setScale(this._revealScale);
+                tween(this.node)
+                    .to(0.22, { scale: this._normalScale }, { easing: 'backOut' })
+                    .start();
+            }
         }
     }
 
@@ -186,6 +194,11 @@ export class WorkItem extends Component {
         this._visual?.render(this._clickProgress, true, false);
         tween(this.node)
             .to(0.16, { position: this._snapPosition, scale: this._normalScale }, { easing: 'quadOut' })
+            .call(() => {
+                if (!config.completeZoneOnDrop) {
+                    this._visual?.hideCollectedVisual();
+                }
+            })
             .start();
         this.finishAction();
     }

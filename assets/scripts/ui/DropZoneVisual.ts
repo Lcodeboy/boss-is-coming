@@ -14,10 +14,14 @@ export class DropZoneVisual extends Component {
     private _highlighted = false;
     private _completed = false;
     private _progressText: string | null = null;
+    private _progressCompleted = 0;
+    private _progressTotal = 0;
 
     public initialize(config: DropZoneConfig, formal: boolean): void {
         this._config = config;
         this._formal = formal;
+        this._progressTotal = config.progressActionIds.length;
+        this._progressText = this.createProgressText(0, this._progressTotal);
         this._graphics = this.node.getComponent(Graphics) ?? this.node.addComponent(Graphics);
         this._label = createLabel(
             this.node,
@@ -55,17 +59,19 @@ export class DropZoneVisual extends Component {
             return;
         }
         const safeCompleted = Math.max(0, Math.min(total, completed));
+        this._progressCompleted = safeCompleted;
+        this._progressTotal = total;
         this._completed = safeCompleted >= total;
-        this._progressText = this._completed
-            ? config.progressCompleteLabel ?? `${config.label} ${total}/${total}`
-            : `${config.label} ${safeCompleted}/${total}`;
+        this._progressText = this.createProgressText(safeCompleted, total);
         this.render();
     }
 
     public reset(): void {
         this._completed = false;
         this._highlighted = false;
-        this._progressText = null;
+        this._progressCompleted = 0;
+        this._progressTotal = this._config?.progressActionIds.length ?? 0;
+        this._progressText = this.createProgressText(0, this._progressTotal);
         this.render();
     }
 
@@ -85,16 +91,23 @@ export class DropZoneVisual extends Component {
             );
         } else {
             graphics.clear();
-            switch (config.id) {
+            switch (config.visual) {
                 case 'drawer':
                     this.paintDrawer(graphics, config);
                     break;
                 case 'trash':
                     this.paintTrash(graphics, config);
                     break;
-                case 'review':
+                case 'review-tray':
                     this.paintReviewTray(graphics, config);
                     break;
+                case 'report-folder':
+                    this.paintReportFolder(graphics, config);
+                    break;
+                case 'badge-stand':
+                    this.paintBadgeStand(graphics, config);
+                    break;
+                case 'compat':
                 default:
                     drawRoundedPanel(
                         this.node,
@@ -173,6 +186,48 @@ export class DropZoneVisual extends Component {
         this.paintStateStroke(graphics, width, height, 14);
     }
 
+    private paintReportFolder(graphics: Graphics, config: DropZoneConfig): void {
+        const width = config.size.width;
+        const height = config.size.height;
+        this.paintHighlight(graphics, width, height, 16);
+        graphics.fillColor = Palette.folder;
+        graphics.roundRect(-width / 2, -height / 2, width, height * 0.76, 13);
+        graphics.roundRect(-width / 2 + 15, height * 0.13, width * 0.44, height * 0.28, 10);
+        graphics.fill();
+        graphics.fillColor = Palette.trayPaper;
+        graphics.roundRect(-width / 2 + 16, -height * 0.28, width - 32, height * 0.48, 8);
+        graphics.fill();
+        const total = Math.max(3, this._progressTotal);
+        const dotGap = 34;
+        const firstX = -dotGap * (total - 1) / 2;
+        for (let index = 0; index < total; index += 1) {
+            graphics.fillColor = index < this._progressCompleted ? Palette.success : Palette.blueGray;
+            graphics.roundRect(firstX + index * dotGap - 11, -height * 0.27, 22, 10, 5);
+            graphics.fill();
+        }
+        this.paintStateStroke(graphics, width, height, 16);
+    }
+
+    private paintBadgeStand(graphics: Graphics, config: DropZoneConfig): void {
+        const width = config.size.width;
+        const height = config.size.height;
+        this.paintHighlight(graphics, width, height, 14);
+        graphics.fillColor = Palette.badgeStand;
+        graphics.roundRect(-width / 2, -height / 2, width, 26, 10);
+        graphics.fill();
+        graphics.lineWidth = 6;
+        graphics.strokeColor = new Color(75, 97, 108, 255);
+        graphics.moveTo(-width * 0.34, -height / 2 + 22);
+        graphics.lineTo(-width * 0.24, height * 0.34);
+        graphics.lineTo(width * 0.24, height * 0.34);
+        graphics.lineTo(width * 0.34, -height / 2 + 22);
+        graphics.stroke();
+        graphics.fillColor = new Color(225, 235, 236, 210);
+        graphics.roundRect(-width * 0.24, -height * 0.2, width * 0.48, height * 0.38, 8);
+        graphics.fill();
+        this.paintStateStroke(graphics, width, height, 14);
+    }
+
     private paintHighlight(graphics: Graphics, width: number, height: number, radius: number): void {
         if (!this._highlighted) {
             return;
@@ -195,13 +250,18 @@ export class DropZoneVisual extends Component {
         if (!this._formal) {
             return config.label;
         }
-        switch (config.id) {
+        switch (config.visual) {
             case 'drawer':
                 return '私人物品';
             case 'trash':
                 return '废弃物';
-            case 'review':
+            case 'review-tray':
                 return '待检查文件';
+            case 'report-folder':
+                return '报告文件夹';
+            case 'badge-stand':
+                return '访客证托架';
+            case 'compat':
             default:
                 return config.label;
         }
@@ -211,10 +271,30 @@ export class DropZoneVisual extends Component {
         if (!this._formal) {
             return 0;
         }
-        if (config.id === 'review') {
+        if (config.visual === 'review-tray') {
             return config.size.height * 0.25;
         }
-        // 抽屉和垃圾桶标签置于图形上方，节点与碰撞框保持原位和原尺寸。
-        return config.size.height / 2 + 30;
+        if (config.visual === 'report-folder') {
+            return config.size.height * 0.17;
+        }
+        if (config.visual === 'badge-stand') {
+            return 2;
+        }
+        if (config.visual === 'drawer' || config.visual === 'trash') {
+            // 抽屉和垃圾桶标签置于图形上方，节点与碰撞框保持原位和原尺寸。
+            return config.size.height / 2 + 30;
+        }
+        return 0;
+    }
+
+    private createProgressText(completed: number, total: number): string | null {
+        const config = this._config;
+        if (config === null || total <= 0) {
+            return null;
+        }
+        if (completed >= total) {
+            return config.progressCompleteLabel ?? `${config.label} ${total}/${total}`;
+        }
+        return `${config.label} ${completed}/${total}`;
     }
 }

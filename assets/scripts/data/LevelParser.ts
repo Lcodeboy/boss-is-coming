@@ -1,7 +1,10 @@
 import {
     DropZoneConfig,
+    DropZoneVisual,
+    EventMessageStyle,
     ItemInteraction,
     ItemVisual,
+    ItemVisualVariant,
     LevelConfig,
     LevelTaskConfig,
     LevelTimedEventConfig,
@@ -26,6 +29,24 @@ const VISUALS: readonly ItemVisual[] = [
     'coffee',
     'visitor-badge',
 ];
+const VISUAL_VARIANTS: readonly ItemVisualVariant[] = [
+    'file-current',
+    'file-archive',
+    'file-reference',
+    'report-bars',
+    'report-line',
+    'report-donut',
+    'monitor-two-step',
+];
+const ZONE_VISUALS: readonly DropZoneVisual[] = [
+    'drawer',
+    'trash',
+    'review-tray',
+    'report-folder',
+    'badge-stand',
+    'compat',
+];
+const EVENT_MESSAGE_STYLES: readonly EventMessageStyle[] = ['coworker', 'boss', 'neutral'];
 
 /** 将未知 JSON 转为完整关卡配置，并校验所有跨引用。 */
 export function parseLevel(value: unknown): LevelConfig {
@@ -200,6 +221,7 @@ function parseZone(value: unknown, index: number): DropZoneConfig {
         label: readString(source.label, `${path}.label`),
         position: readPoint(source.position, `${path}.position`),
         size: readSize(source.size, `${path}.size`),
+        visual: readOptionalEnum(source.visual, ZONE_VISUALS, `${path}.visual`, 'compat') ?? 'compat',
         progressActionIds: readOptionalStringArray(source.progressActionIds, `${path}.progressActionIds`),
         progressCompleteLabel: readOptionalString(source.progressCompleteLabel, `${path}.progressCompleteLabel`),
     };
@@ -213,6 +235,9 @@ function parseItem(value: unknown, index: number): WorkItemConfig {
         label: readString(source.label, `${path}.label`),
         interaction: readEnum(source.interaction, INTERACTIONS, `${path}.interaction`),
         visual: readEnum(source.visual, VISUALS, `${path}.visual`),
+        visualVariant: readOptionalEnum(source.visualVariant, VISUAL_VARIANTS, `${path}.visualVariant`),
+        visualBadge: readOptionalString(source.visualBadge, `${path}.visualBadge`),
+        visualCode: readOptionalString(source.visualCode, `${path}.visualCode`),
         initialPosition: readPoint(source.initialPosition, `${path}.initialPosition`),
         size: readSize(source.size, `${path}.size`),
         actionId: readOptionalString(source.actionId, `${path}.actionId`),
@@ -234,6 +259,7 @@ function parseEvent(value: unknown, index: number): LevelTimedEventConfig {
         id: readString(source.id, `${path}.id`),
         triggerRemainingSeconds: readPositiveNumber(source.triggerRemainingSeconds, `${path}.triggerRemainingSeconds`),
         notification: readString(source.notification, `${path}.notification`),
+        messageStyle: readOptionalEnum(source.messageStyle, EVENT_MESSAGE_STYLES, `${path}.messageStyle`, 'neutral') ?? 'neutral',
         activateTaskIds: readOptionalStringArray(source.activateTaskIds, `${path}.activateTaskIds`),
         activateItemIds: readOptionalStringArray(source.activateItemIds, `${path}.activateItemIds`),
     };
@@ -343,4 +369,16 @@ function readEnum<T extends string>(value: unknown, choices: readonly T[], path:
         throw new Error(`${path} 不是受支持的值`);
     }
     return value as T;
+}
+
+function readOptionalEnum<T extends string>(
+    value: unknown,
+    choices: readonly T[],
+    path: string,
+    fallback?: T,
+): T | undefined {
+    if (value === undefined) {
+        return fallback;
+    }
+    return readEnum(value, choices, path);
 }
