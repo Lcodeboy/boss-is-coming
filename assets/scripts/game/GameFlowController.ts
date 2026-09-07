@@ -5,6 +5,8 @@ import { CountdownTimer } from '../core/CountdownTimer';
 import { GameState, GameStateMachine } from '../core/GameStateMachine';
 import { LevelSession, LevelSessionUpdate } from '../core/LevelSession';
 import { ProgressService } from '../core/ProgressService';
+import { GameLifecycleService, LifecycleSnapshot } from '../core/GameLifecycleService';
+import { CocosLifecycleProvider } from './CocosFeedbackProviders';
 import { LEVEL_IDS, LevelRepository } from '../data/LevelRepository';
 import { LevelConfig } from '../data/LevelTypes';
 import { GameView, GameViewActions } from '../ui/GameView';
@@ -26,7 +28,7 @@ export class GameFlowController extends Component {
     private _level: LevelConfig | null = null;
     private _resultRemainingSeconds = 0;
     private _inspectionStarted = false;
-    private _warningPlayed = false;
+    private _lifecycle: GameLifecycleService | null = null;
     private _disposed = false;
 
     protected override onLoad(): void {
@@ -34,12 +36,17 @@ export class GameFlowController extends Component {
         this._timer = this.node.addComponent(CountdownTimer);
         this._audio = this.node.addComponent(AudioFeedback);
         this._progress = new ProgressService(sys.localStorage, LEVEL_IDS.length);
+        this._lifecycle = new GameLifecycleService(new CocosLifecycleProvider(), () => this._stateMachine.state,
+            (snapshot) => this.applyLifecycle(snapshot));
+        this._lifecycle.start();
         this._stateMachine.setListener((state) => this._gameView?.onStateChanged(state));
         void this.loadApplication();
     }
 
     protected override onDestroy(): void {
         this._disposed = true;
+        this._lifecycle?.dispose();
+        this._audio?.resetRound();
         this._timer?.stopTimer();
         this._stateMachine.setListener(null);
         this._gameView = null;
@@ -56,6 +63,7 @@ export class GameFlowController extends Component {
             this._levels = levels;
             this._gameView = this.node.addComponent(GameView);
             this._gameView.initialize(levels, this.requireProgress().snapshot, this.createActions(), this.requireAudio());
+            if (this._lifecycle !== null) { this.applyLifecycle(this._lifecycle.snapshot); }
         } catch (loadError: unknown) {
             const message = loadError instanceof Error ? loadError.message : String(loadError);
             error(message);
@@ -77,15 +85,16 @@ export class GameFlowController extends Component {
             onRetry: () => this.handleRetry(),
             onNextLevel: () => this.handleNextLevel(),
             onReturnToLevels: () => this.handleReturnToLevels(),
-            canInteract: () => this._stateMachine.state === GameState.PLAYING,
+            onContinue: () => { this._lifecycle?.continuePlaying(); },
+            canInteract: () => this._stateMachine.state === GameState.PLAYING && !this._lifecycle?.snapshot.paused,
         };
     }
 
     private handleStartChallenge(): void {
+        this._audio?.unlock();
         if (!this._stateMachine.transition(GameState.LEVEL_SELECT)) {
             return;
         }
-        this._audio?.play('button');
         this._gameView?.showLevelSelect(this.requireProgress().snapshot.highestUnlockedLevel);
     }
 
@@ -93,7 +102,7 @@ export class GameFlowController extends Component {
         if (!this._stateMachine.transition(GameState.HOME)) {
             return;
         }
-        this._audio?.play('button');
+        this.resetFeedback();
         this._gameView?.showStartPage();
     }
 
@@ -108,7 +117,6 @@ export class GameFlowController extends Component {
         if (!this._stateMachine.transition(GameState.READY)) {
             return;
         }
-        this._audio?.play('button');
         this.prepareLevel(level);
     }
 
@@ -138,9 +146,7 @@ export class GameFlowController extends Component {
         if (level === null || !this._stateMachine.transition(GameState.PLAYING)) {
             return;
         }
-        this._audio?.play('button');
         this._inspectionStarted = false;
-        this._warningPlayed = false;
         this._resultRemainingSeconds = level.durationSeconds;
         this._gameView?.beginPlaying();
         this.requireTimer().startTimer(
@@ -152,16 +158,16 @@ export class GameFlowController extends Component {
 
     private prepareLevel(level: LevelConfig): void {
         this.requireTimer().stopTimer();
+        this.resetFeedback();
         this._level = level;
         this._session.configure(level);
         this._inspectionStarted = false;
-        this._warningPlayed = false;
         this._resultRemainingSeconds = level.durationSeconds;
         this._gameView?.configureLevel(level, this._session.snapshot);
     }
 
     private handleItemAction(itemId: string): void {
-        if (this._stateMachine.state !== GameState.PLAYING) {
+        if (this._stateMachine.state !== GameState.PLAYING || this._lifecycle?.snapshot.paused) {
             return;
         }
         const update = this._session.performItemAction(itemId);
@@ -182,6 +188,7 @@ export class GameFlowController extends Component {
         const timer = this.requireTimer();
         this._resultRemainingSeconds = Math.max(0, timer.remainingSeconds);
         if (this._stateMachine.transition(GameState.PREPARED)) {
+            this._audio?.prepared();
             timer.finishQuickly(1.35);
         }
     }
@@ -198,10 +205,7 @@ export class GameFlowController extends Component {
         }
         const snapshot = this._approach.calculate(level.durationSeconds, remainingSeconds, level.targetFloor);
         this._gameView?.updateApproach(snapshot, remainingSeconds);
-        if (!this._warningPlayed && remainingSeconds <= 5) {
-            this._warningPlayed = true;
-            this._audio?.play('warning');
-        }
+        this._audio?.approach(snapshot.stage, remainingSeconds);
     }
 
     private handleTimerElapsed(): void {
@@ -255,7 +259,7 @@ export class GameFlowController extends Component {
                 : firstMissing?.failureInspection ?? level.failureEvaluation,
             hasNextLevel: success && level.order < this._levels.length,
         });
-        this._audio?.play('result');
+        this._audio?.result(success);
     }
 
     private handleRetry(): void {
@@ -268,7 +272,6 @@ export class GameFlowController extends Component {
         if (!this._stateMachine.transition(GameState.READY)) {
             return;
         }
-        this._audio?.play('button');
         this.prepareLevel(level);
     }
 
@@ -284,7 +287,6 @@ export class GameFlowController extends Component {
         if (!this._stateMachine.transition(GameState.READY)) {
             return;
         }
-        this._audio?.play('button');
         this.prepareLevel(nextLevel);
     }
 
@@ -303,7 +305,7 @@ export class GameFlowController extends Component {
         if (!this._stateMachine.transition(GameState.LEVEL_SELECT)) {
             return;
         }
-        this._audio?.play('button');
+        this.resetFeedback();
         this._inspectionStarted = false;
         this._gameView?.cancelGameplay();
         this._gameView?.showLevelSelect(this.requireProgress().snapshot.highestUnlockedLevel);
@@ -314,6 +316,17 @@ export class GameFlowController extends Component {
             throw new Error('倒计时组件尚未初始化');
         }
         return this._timer;
+    }
+
+    private resetFeedback(): void {
+        this._audio?.resetRound();
+        this._lifecycle?.reset();
+    }
+
+    private applyLifecycle(snapshot: LifecycleSnapshot): void {
+        this._timer?.setPaused(snapshot.paused);
+        this._audio?.suspend(snapshot.paused);
+        this._gameView?.setLifecyclePaused(snapshot.paused, !snapshot.hidden && snapshot.needsContinue);
     }
 
     private requireAudio(): AudioFeedback {

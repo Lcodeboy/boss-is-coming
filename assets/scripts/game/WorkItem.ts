@@ -42,6 +42,7 @@ export class WorkItem extends Component {
     private _completed = false;
     private _pressed = false;
     private _clickProgress = 0;
+    private _nearCuePlayed = false;
 
     public get itemId(): string {
         return this._config?.id ?? '';
@@ -76,7 +77,7 @@ export class WorkItem extends Component {
         this.node.active = available;
         if (available) {
             this.resetItem();
-            if (shouldReveal) {
+            if (shouldReveal && !this._audio?.reducedMotion) {
                 this.node.setScale(this._revealScale);
                 tween(this.node)
                     .to(0.22, { scale: this._normalScale }, { easing: 'backOut' })
@@ -103,6 +104,19 @@ export class WorkItem extends Component {
         this._pressed = false;
         this.clearTargetHighlight();
         this.returnHome();
+    }
+
+    /** 后台取消动画时落实已接受的吸附状态，未完成拖拽立即归位。 */
+    public cancelFeedback(): void {
+        Tween.stopAllByTarget(this.node);
+        this._pressed = false;
+        this.clearTargetHighlight();
+        this.node.setScale(this._normalScale);
+        this.node.setPosition(this._completed && this._config?.interaction === 'drag' ? this._snapPosition : this._homePosition);
+        this._visual?.render(this._clickProgress, this._completed, false);
+        if (this._completed && this._config?.interaction === 'drag' && !this._config.completeZoneOnDrop) {
+            this._visual?.hideCollectedVisual();
+        }
     }
 
     protected override onEnable(): void {
@@ -134,14 +148,15 @@ export class WorkItem extends Component {
 
     private onTouchStart(event: EventTouch): void {
         const config = this._config;
-        if (config === null || config.interaction === 'static' || this._completed || !this._canInteract?.()) {
+        if (config === null || config.interaction === 'static' || this._completed || this._pressed || !this._canInteract?.()) {
             return;
         }
         event.propagationStopped = true;
         this._pressed = true;
+        this._nearCuePlayed = false;
         this.node.setSiblingIndex(this.node.parent?.children.length ?? 0);
         Tween.stopAllByTarget(this.node);
-        tween(this.node).to(0.07, { scale: this._selectedScale }).start();
+        if (!this._audio?.reducedMotion) { tween(this.node).to(0.07, { scale: this._selectedScale }).start(); }
         this._visual?.render(this._clickProgress, false, true);
         this._audio?.play('item-picked');
     }
@@ -255,7 +270,7 @@ export class WorkItem extends Component {
     private returnHome(): void {
         Tween.stopAllByTarget(this.node);
         this._visual?.render(this._clickProgress, false, false);
-        if (!this._formalVisuals) {
+        if (!this._formalVisuals || this._audio?.reducedMotion) {
             tween(this.node)
                 .to(0.2, { position: this._homePosition, scale: this._normalScale }, { easing: 'quadOut' })
                 .start();
@@ -282,6 +297,10 @@ export class WorkItem extends Component {
         this.clearTargetHighlight();
         this._highlightedZone = highlighted;
         this._highlightedZone?.setHighlighted(true);
+        if (highlighted !== null && !this._nearCuePlayed) {
+            this._nearCuePlayed = true;
+            this._audio?.play('target-near');
+        }
     }
 
     private clearTargetHighlight(): void {

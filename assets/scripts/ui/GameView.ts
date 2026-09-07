@@ -49,6 +49,8 @@ import {
     paintWorkspaceDepth,
 } from './VisualFactory';
 import { ThemeButtonVariant } from './VisualTheme';
+import { ActionButton } from './ActionButton';
+import { SettingsView } from './SettingsView';
 
 const { ccclass } = _decorator;
 
@@ -61,6 +63,7 @@ export interface GameViewActions extends ResultActions {
     readonly onItemAction: (itemId: string) => void;
     readonly onAbortLevel: () => void;
     readonly canInteract: () => boolean;
+    readonly onContinue: () => void;
 }
 
 @ccclass('GameView')
@@ -90,6 +93,9 @@ export class GameView extends Component {
     private _actions: GameViewActions | null = null;
     private _audio: AudioFeedback | null = null;
     private _formalLevel = false;
+    private _resumeOverlay: Node | null = null;
+    private _settingsView: SettingsView | null = null;
+    private _edgePulse: UIOpacity | null = null;
 
     public initialize(
         levels: readonly LevelConfig[],
@@ -116,6 +122,7 @@ export class GameView extends Component {
         this.buildLevelSelect(levels);
         this.buildPersistentOverlays();
         this.buildToast();
+        audio.onBeat = (seconds) => this.showEdgePulse(seconds);
         this.showStartPage();
         this._levelSelectView?.show(progress.highestUnlockedLevel);
         this._levelSelectView?.hide();
@@ -204,6 +211,7 @@ export class GameView extends Component {
             this._dropZones.get(progress.zoneId)?.setProgress(progress.completed, progress.total);
         }
         for (const event of update.triggeredEvents) {
+            this._audio?.message(event.id);
             this._eventMessageView?.show(event.notification, event.messageStyle);
         }
     }
@@ -216,6 +224,8 @@ export class GameView extends Component {
         }
         this.bringToFront(this._inspectionView?.node ?? null);
         this._inspectionView?.play(steps, onFinished);
+        this._audio?.inspection();
+        this.stopEdgePulse();
     }
 
     public showResult(result: ResultPresentation): void {
@@ -341,6 +351,10 @@ export class GameView extends Component {
             'primary',
         );
         startButton.setPosition(0, startLayout.startButtonY);
+        this.createButton(hall, 'SettingsButton', '设置', () => {
+            this.bringToFront(this._settingsView?.node ?? null);
+            this._settingsView?.show();
+        }, 112, 80, 'quiet').setPosition(284, this._viewport.safeTop - 50);
     }
 
     private buildLevelSelect(levels: readonly LevelConfig[]): void {
@@ -367,6 +381,18 @@ export class GameView extends Component {
         const resultNode = this.createBlockingOverlay('ResultOverlay', Palette.overlay);
         this._resultView = resultNode.addComponent(ResultView);
         this._resultView.initialize(this._actions);
+
+        const settingsNode = this.createBlockingOverlay('SettingsOverlay', Palette.overlay);
+        this._settingsView = settingsNode.addComponent(SettingsView);
+        if (this._audio !== null) { this._settingsView.initialize(this._audio.settings); }
+
+        this._resumeOverlay = this.createBlockingOverlay('ResumeOverlay', Palette.overlay);
+        const card = createRoundedPanel(this._resumeOverlay, 'ResumeCard', 600, 310, Palette.panel, 30);
+        createLabel(card, 'PauseTitle', '整理已暂停', 510, 64, { fontSize: 38, color: Palette.ink, bold: true }).node.setPosition(0, 74);
+        const continueButton = this.createButton(card, 'ContinueButton', '继续整理', this._actions.onContinue, 330, 94);
+        continueButton.setPosition(0, -58);
+        continueButton.getComponent(ActionButton)?.setAllowedWhilePaused(true);
+        this._resumeOverlay.active = false;
     }
 
     private buildToast(): void {
@@ -555,6 +581,13 @@ export class GameView extends Component {
         eventMessageNode.setPosition(105, layout.workspaceY + layout.workspaceHeight / 2 - 82);
         this._eventMessageView = eventMessageNode.addComponent(EventMessageView);
         this._eventMessageView.initialize();
+        const pulseNode = createUiNode(this._gameLayer, 'WarningEdgePulse', this._viewport.width, this._viewport.height);
+        this._edgePulse = pulseNode.addComponent(UIOpacity);
+        this._edgePulse.opacity = 0;
+        for (const side of [-1, 1]) {
+            const strip = createRoundedPanel(pulseNode, `WarningEdge${side}`, 8, this._viewport.height, Palette.warning, 0);
+            strip.setPosition(side * (this._viewport.width / 2 - 4), 0);
+        }
         this._gameLayer.active = false;
     }
 
@@ -655,6 +688,9 @@ export class GameView extends Component {
     }
 
     private cancelTransientViews(): void {
+        if (this._resumeOverlay !== null) { this._resumeOverlay.active = false; }
+        if (this._settingsView !== null) { this._settingsView.node.active = false; }
+        this.stopEdgePulse();
         this._tutorialView?.hide();
         this._inspectionView?.cancel();
         this._resultView?.hide();
@@ -663,6 +699,8 @@ export class GameView extends Component {
     }
 
     private teardownLevel(): void {
+        this.stopEdgePulse();
+        this._edgePulse = null;
         this._eventMessageView?.cancel();
         this._eventMessageView = null;
         this._introOverlay?.destroy();
@@ -696,9 +734,39 @@ export class GameView extends Component {
     }
 
     protected override onDestroy(): void {
+        if (this._audio !== null) { this._audio.onBeat = null; }
         this.stopToastTween();
         this.teardownLevel();
         this._actions = null;
         this._audio = null;
+    }
+
+    public setLifecyclePaused(paused: boolean, showContinue: boolean): void {
+        this._inspectionView?.setPaused(paused);
+        if (paused) {
+            this._workItems.forEach((item) => item.cancelFeedback());
+            this._gameRoot?.getComponentsInChildren(ActionButton).forEach((button) => button.cancelFeedback());
+            this._bossView?.cancelFeedback();
+            this._eventMessageView?.cancel();
+            this.hideToast();
+            this.stopEdgePulse();
+        }
+        if (this._resumeOverlay !== null) {
+            this._resumeOverlay.active = showContinue;
+            if (showContinue) { this.bringToFront(this._resumeOverlay); }
+        }
+    }
+
+    private showEdgePulse(seconds: number): void {
+        if (seconds > 3 || this._audio?.reducedMotion || this._edgePulse === null) { return; }
+        Tween.stopAllByTarget(this._edgePulse);
+        this._edgePulse.opacity = 0;
+        tween(this._edgePulse).to(0.12, { opacity: 80 + (3 - seconds) * 25 }).to(0.28, { opacity: 0 }).start();
+    }
+
+    private stopEdgePulse(): void {
+        if (this._edgePulse === null) { return; }
+        Tween.stopAllByTarget(this._edgePulse);
+        this._edgePulse.opacity = 0;
     }
 }

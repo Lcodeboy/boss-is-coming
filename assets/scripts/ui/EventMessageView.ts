@@ -2,6 +2,7 @@ import { _decorator, Component, Label, Node, Tween, tween, UIOpacity, Vec3 } fro
 import { EventMessageStyle } from '../data/LevelTypes';
 import { createLabel, Palette } from './UIFactory';
 import { paintEventMessageBubble } from './VisualFactory';
+import { prefersReducedMotion } from '../game/CocosFeedbackProviders';
 
 const { ccclass } = _decorator;
 
@@ -32,11 +33,11 @@ export class EventMessageView extends Component {
         paintEventMessageBubble(this.node, style);
         this._label.string = message;
         this._opacity.opacity = 0;
-        this.node.setScale(this._hiddenScale);
+        this.node.setScale(prefersReducedMotion() ? this._visibleScale : this._hiddenScale);
         this.node.active = true;
-        tween(this.node)
+        if (!prefersReducedMotion()) { tween(this.node)
             .to(0.18, { scale: this._visibleScale }, { easing: 'backOut' })
-            .start();
+            .start(); }
         tween(this._opacity)
             .to(0.12, { opacity: 255 })
             .delay(1.65)

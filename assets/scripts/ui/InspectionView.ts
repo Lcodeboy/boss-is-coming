@@ -1,4 +1,4 @@
-import { _decorator, Component, Label, Node, Tween, tween, UIOpacity } from 'cc';
+import { _decorator, Component, director, Label, Node, Tween, tween, UIOpacity } from 'cc';
 import { InspectionSequence, InspectionSequenceEvent } from '../core/InspectionSequence';
 import { createLabel, createRoundedPanel, drawRoundedPanel, Palette } from './UIFactory';
 
@@ -27,6 +27,7 @@ export class InspectionView extends Component {
     private _index = 0;
     private _onFinished: InspectionFinished | null = null;
     private _formal = false;
+    private _paused = false;
 
     public initialize(): void {
         drawRoundedPanel(this.node, Palette.overlay, 0);
@@ -95,6 +96,9 @@ export class InspectionView extends Component {
     }
 
     public cancel(): void {
+        const target: Pick<Component, 'uuid'> = this;
+        director.getScheduler().resumeTarget(target);
+        this._paused = false;
         this.unscheduleAllCallbacks();
         this._sequence.cancel();
         this._steps = [];
@@ -137,8 +141,21 @@ export class InspectionView extends Component {
     }
 
     private readonly advance = (): void => {
+        if (this._paused) { return; }
         this.consumeSequenceEvent(this._sequence.advance());
     };
+
+    public setPaused(paused: boolean): void {
+        this._paused = paused;
+        // 冻结调度器已累计的展示时间，保留当前检查项的剩余展示时长。
+        const target: Pick<Component, 'uuid'> = this;
+        if (paused) { director.getScheduler().pauseTarget(target); }
+        else { director.getScheduler().resumeTarget(target); }
+        if (paused && this._messageOpacity !== null) {
+            Tween.stopAllByTarget(this._messageOpacity);
+            this._messageOpacity.opacity = 255;
+        }
+    }
 
     private readonly finishInspection = (): void => {
         if (this._onFinished === null) {

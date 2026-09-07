@@ -1,5 +1,6 @@
 import { _decorator, Component, EventTouch, Node, Tween, tween, Vec3 } from 'cc';
 import { VisualTheme } from './VisualTheme';
+import { AudioFeedback } from '../core/AudioFeedback';
 
 const { ccclass } = _decorator;
 
@@ -11,6 +12,11 @@ export class ActionButton extends Component {
     private readonly _pressedScale = new Vec3(0.955, 0.955, 1);
     private _action: ButtonAction | null = null;
     private _interactable = true;
+    private _pressed = false;
+    private _feedback: AudioFeedback | null = null;
+    private _allowedWhilePaused = false;
+
+    public setAllowedWhilePaused(allowed: boolean): void { this._allowedWhilePaused = allowed; }
 
     public configure(action: ButtonAction): void {
         this._action = action;
@@ -30,6 +36,7 @@ export class ActionButton extends Component {
     }
 
     protected override onDisable(): void {
+        this.cancelFeedback();
         this.removeListeners();
         Tween.stopAllByTarget(this.node);
         this.node.setScale(this._normalScale);
@@ -42,29 +49,38 @@ export class ActionButton extends Component {
     }
 
     private onTouchStart(event: EventTouch): void {
-        if (!this._interactable) {
+        this.resolveFeedback();
+        if (!this._interactable || (this._feedback?.inputBlocked && !this._allowedWhilePaused)) {
             return;
         }
         event.propagationStopped = true;
+        this._pressed = true;
         Tween.stopAllByTarget(this.node);
-        tween(this.node).to(VisualTheme.motion.pressSeconds, { scale: this._pressedScale }).start();
+        if (!this._feedback?.reducedMotion) {
+            tween(this.node).to(VisualTheme.motion.pressSeconds, { scale: this._pressedScale }).start();
+        }
     }
 
     private onTouchEnd(event: EventTouch): void {
-        if (!this._interactable) {
+        if (!this._interactable || !this._pressed) {
             return;
         }
+        this._pressed = false;
+        if (this._feedback?.inputBlocked && !this._allowedWhilePaused) { this.cancelFeedback(); return; }
         event.propagationStopped = true;
         this.restoreScale();
         this._action?.();
+        this._feedback?.play('button');
     }
 
     private onTouchCancel(): void {
+        this._pressed = false;
         this.restoreScale();
     }
 
     private restoreScale(): void {
         Tween.stopAllByTarget(this.node);
+        if (this._feedback?.reducedMotion) { this.node.setScale(this._normalScale); return; }
         tween(this.node).to(VisualTheme.motion.releaseSeconds, { scale: this._normalScale }).start();
     }
 
@@ -72,5 +88,21 @@ export class ActionButton extends Component {
         this.node.off(Node.EventType.TOUCH_START, this.onTouchStart, this);
         this.node.off(Node.EventType.TOUCH_END, this.onTouchEnd, this);
         this.node.off(Node.EventType.TOUCH_CANCEL, this.onTouchCancel, this);
+    }
+
+    public cancelFeedback(): void {
+        this._pressed = false;
+        Tween.stopAllByTarget(this.node);
+        this.node.setScale(this._normalScale);
+    }
+
+    private resolveFeedback(): void {
+        if (this._feedback !== null) { return; }
+        let parent: Node | null = this.node;
+        while (parent !== null) {
+            this._feedback = parent.getComponent(AudioFeedback);
+            if (this._feedback !== null) { return; }
+            parent = parent.parent;
+        }
     }
 }

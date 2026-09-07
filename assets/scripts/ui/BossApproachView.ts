@@ -1,4 +1,5 @@
-import { _decorator, Color, Component, Graphics, Label, Node, UITransform } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, UITransform, UIOpacity, Tween, tween } from 'cc';
+import { prefersReducedMotion } from '../game/CocosFeedbackProviders';
 import { BossApproachSnapshot, BossStage } from '../core/BossApproachModel';
 import { createLabel, createRoundedPanel, createUiNode, drawRoundedPanel, Palette } from './UIFactory';
 
@@ -29,6 +30,8 @@ export class BossApproachView extends Component {
     private _lastTimeText = '';
     private _prepared = false;
     private _formal = false;
+    private _lastStage: BossStage | null = null;
+    private readonly _dotOpacities: UIOpacity[] = [];
 
     public initialize(formal = false): void {
         if (this._stageLabel !== null) {
@@ -93,6 +96,7 @@ export class BossApproachView extends Component {
             );
             dot.setPosition(-270 + index * 108, -75);
             dots.push(dot);
+            this._dotOpacities.push(dot.addComponent(UIOpacity));
         }
         this._stageDots = dots;
 
@@ -145,6 +149,15 @@ export class BossApproachView extends Component {
             : this._formal ? Palette.mutedLight : Palette.muted;
 
         const activeIndex = STAGE_ORDER.indexOf(snapshot.stage);
+        if (snapshot.stage !== this._lastStage) {
+            this._lastStage = snapshot.stage;
+            const opacity = this._dotOpacities[activeIndex];
+            if (opacity !== undefined && !prefersReducedMotion()) {
+                Tween.stopAllByTarget(opacity);
+                opacity.opacity = 70;
+                tween(opacity).to(0.22, { opacity: 255 }).start();
+            }
+        }
         for (let index = 0; index < this._stageDots.length; index += 1) {
             drawRoundedPanel(
                 this._stageDots[index],
@@ -171,6 +184,8 @@ export class BossApproachView extends Component {
     }
 
     public resetView(): void {
+        this.cancelFeedback();
+        this._lastStage = null;
         this._prepared = false;
         this._lastStageText = '';
         this._lastFloorText = '';
@@ -188,6 +203,12 @@ export class BossApproachView extends Component {
         this._progressColor.b = Math.round(Palette.blue.b + (Palette.warning.b - Palette.blue.b) * clamped);
         this._progressColor.a = 255;
     }
+
+    public cancelFeedback(): void {
+        for (const opacity of this._dotOpacities) { Tween.stopAllByTarget(opacity); opacity.opacity = 255; }
+    }
+    protected override onDisable(): void { this.cancelFeedback(); }
+    protected override onDestroy(): void { this.cancelFeedback(); }
 
     private renderWarningAccent(amount: number): void {
         const graphics = this._warningAccent;
