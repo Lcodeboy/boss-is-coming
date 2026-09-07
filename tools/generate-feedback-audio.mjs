@@ -3,12 +3,13 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import { renderSelectedButtonWav } from './button-voice.mjs';
 
 const output = fileURLToPath(new URL('../assets/resources/audio/', import.meta.url));
 const rate = 22050;
 // 每个音符：[起始秒、时长秒、起始 Hz、结束 Hz、相对音量、噪声混合比例]。
 export const cues = {
-    button: [[0, .075, 620, 410, 1, .04]],
+    button: renderSelectedButtonWav,
     'item-picked': [[0, .105, 340, 590, 1, 0]],
     'target-near': [[0, .115, 780, 850, 1, 0]],
     'item-correct': [[0, .13, 523, 523, .85, 0], [.105, .17, 784, 784, 1, 0]],
@@ -84,8 +85,8 @@ function meta(file, importer, ver) {
 const verify = process.argv.includes('--check');
 if (!verify) { mkdirSync(output, { recursive: true }); meta(output.slice(0, -1), 'directory', '1.2.0'); }
 const report = [];
-for (const [name, notes] of Object.entries(cues)) {
-    const expected = render(notes);
+for (const [name, definition] of Object.entries(cues)) {
+    const expected = typeof definition === 'function' ? definition() : render(definition);
     const path = join(output, `${name}.wav`);
     if (verify) {
         if (!readFileSync(path).equals(expected)) { throw new Error(`${name}: 音频与确定性生成参数不一致`); }
