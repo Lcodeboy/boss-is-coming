@@ -26,3 +26,7 @@ node_modules/
 # 项目业务脚本不能被用户级全局 `scripts` 规则排除。
 !assets/scripts/
 !assets/scripts/**
+
+# 保留本项目验收说明，避免被机器上的全局 docs 规则排除。
+!docs/
+!docs/stage4-feedback-acceptance.md

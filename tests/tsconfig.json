@@ -11,6 +11,7 @@
   "include": [
     "core-regressions.ts",
     "stage2-regressions.ts",
+    "stage4-regressions.ts",
     "../assets/scripts/core/GameStateMachine.ts",
     "../assets/scripts/core/InspectionSequence.ts",
     "../assets/scripts/core/LevelSession.ts",

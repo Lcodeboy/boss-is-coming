@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>老板上来了 · 反馈验收观察页</title>
+<style>body{margin:0;background:#edf0f1}iframe{display:block;border:0;width:393px;height:852px}pre{white-space:pre-wrap;font:14px monospace}button{position:fixed;left:0;top:0;width:80px;height:24px}</style>
+<iframe src="index.html" title="游戏"></iframe>
+<button>失焦测试</button><pre id="events">等待游戏加载</pre>
+<script>
+// 仅验收页使用。复制到 Web 构建目录后打开；不打包进游戏，不写存档，不修改玩法。
+const frame = document.querySelector('iframe');
+const output = document.querySelector('pre');
+const lines = [];
+const observedSources = new WeakSet();
+function log(text) {
+    lines.push(new Date().toISOString() + ' ' + text);
+    output.textContent = lines.join('\n');
+}
+frame.addEventListener('load', async () => {
+    const win = frame.contentWindow;
+    const doc = frame.contentDocument;
+    win.addEventListener('error', event => log('runtime error: ' + event.message));
+    win.addEventListener('unhandledrejection', event => log('unhandled promise: ' + String(event.reason)));
+    for (const type of ['blur', 'focus']) {
+        win.addEventListener(type, () => log('frame ' + type + ' hidden=' + doc.hidden + ' focus=' + doc.hasFocus()));
+    }
+    doc.addEventListener('visibilitychange', () => log('frame visibility hidden=' + doc.hidden));
+    document.addEventListener('visibilitychange', () => log('parent visibility hidden=' + document.hidden));
+    log('loaded frame hidden=' + doc.hidden + ' focus=' + doc.hasFocus());
+    try {
+        const cc = await win.System.import('cc');
+        const observe = () => {
+            const scene = cc.director.getScene();
+            if (!scene) return;
+            const sources = scene.getComponentsInChildren(cc.AudioSource);
+            for (const source of sources) {
+                log('source state=' + source.state + ' clip=' + (source.clip?.name ?? 'none') + ' buttonLoaded=' + Boolean(cc.resources.get('audio/button', cc.AudioClip)));
+                const feedback = source.node.getComponent('AudioFeedback');
+                log('feedback blocked=' + feedback?.inputBlocked + ' sound=' + feedback?.settings.snapshot.soundEnabled);
+                if (observedSources.has(source)) continue;
+                observedSources.add(source);
+                log('AudioSource attached; count=' + sources.length);
+                source.node.on(cc.AudioSource.EventType.STARTED, () => log('audio started ' + source.clip?.name));
+                source.node.on(cc.AudioSource.EventType.ENDED, () => log('audio ended ' + source.clip?.name));
+            }
+        };
+        // Cocos 会停止输入冒泡：捕获输入后等这一帧的按钮处理完成再观察音频源。
+        doc.addEventListener('mouseup', () => win.requestAnimationFrame(observe), true);
+        doc.addEventListener('touchend', () => win.requestAnimationFrame(observe), true);
+    } catch (error) { log('音频观察不可用：' + String(error)); }
+});
+</script></html>
