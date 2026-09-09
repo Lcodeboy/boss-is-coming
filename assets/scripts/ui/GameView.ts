@@ -279,7 +279,7 @@ export class GameView extends Component {
         const brand = createLabel(
             this._gameRoot,
             'Brand',
-            '老板上来了',
+            '老板要来了',
             320,
             DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.headerHeight,
             {
@@ -308,7 +308,7 @@ export class GameView extends Component {
         this._startOverlay = this.createBlockingOverlay('StartOverlay', Palette.backgroundDeep);
         const hall = createElevatorHall(this._startOverlay, this._viewport);
         const startLayout = calculateStartPageLayout(this._viewport);
-        const title = createLabel(hall, 'Title', '老板上来了', 610, 96, {
+        const title = createLabel(hall, 'Title', '老板要来了', 610, 96, {
             fontSize: 62,
             color: Palette.white,
             bold: true,

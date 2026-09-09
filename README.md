@@ -1,6 +1,8 @@
-# 老板上来了
+# 老板要来了
 
 竖屏单机限时解谜小游戏。当前已完成第二阶段：五关连续游玩、关卡选择与本地进度、组合任务和定时事件。
+
+软件登记全称为“老板要来了游戏软件”，游戏内及发布展示统一使用简称“老板要来了”。工程名、仓库名与本地存档键仍保持 `boss-is-coming`。
 
 ## 开发环境
 
@@ -74,7 +76,7 @@ Web Mobile：
 ```bash
 "/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Contents/MacOS/CocosCreator" \
   --project "$PWD" \
-  --build "platform=web-mobile;startScene=f23a029a-6115-4e32-b852-c1546586bcaa"
+  --build "platform=web-mobile;name=老板要来了;outputName=web-mobile;startScene=f23a029a-6115-4e32-b852-c1546586bcaa"
 ```
 
 抖音小游戏：
@@ -82,7 +84,7 @@ Web Mobile：
 ```bash
 "/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Contents/MacOS/CocosCreator" \
   --project "$PWD" \
-  --build "platform=bytedance-mini-game;startScene=f23a029a-6115-4e32-b852-c1546586bcaa"
+  --build "platform=bytedance-mini-game;name=老板要来了;outputName=bytedance-mini-game;startScene=f23a029a-6115-4e32-b852-c1546586bcaa"
 ```
 
 ## Creator 人工验收
