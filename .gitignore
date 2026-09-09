@@ -30,3 +30,7 @@ node_modules/
 # 保留本项目验收说明，避免被机器上的全局 docs 规则排除。
 !docs/
 !docs/stage4-feedback-acceptance.md
+
+# 本地试听导出与 PDF 临时工作文件
+/artifacts/button-audio/
+/tmp/pdfs/
