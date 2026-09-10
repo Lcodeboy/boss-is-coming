@@ -1,7 +1,16 @@
 import { GameState, GameStateMachine } from '../assets/scripts/core/GameStateMachine';
 import { InspectionSequence } from '../assets/scripts/core/InspectionSequence';
 import {
+    convertScreenRectToViewport,
+    readDouyinMenuButtonRect,
+    reserveDouyinMenuButtonSafeArea,
+    ViewportRectData,
+} from '../assets/scripts/core/DouyinSafeArea';
+import {
+    calculateCoverLayout,
     calculateFixedWidthViewport,
+    calculateFullBleedBackgroundLayout,
+    calculateFullscreenOverlayLayout,
     calculateLevelSelectLayout,
     calculatePortraitGameLayout,
     calculateStartPageLayout,
@@ -27,6 +36,22 @@ function assert(condition: boolean, message: string): void {
     if (!condition) {
         throw new Error(message);
     }
+}
+
+function centeredRect(x: number, y: number, width: number, height: number): ViewportRectData {
+    return {
+        left: x - width / 2,
+        right: x + width / 2,
+        top: y + height / 2,
+        bottom: y - height / 2,
+    };
+}
+
+function intersects(left: ViewportRectData, right: ViewportRectData): boolean {
+    return left.left < right.right
+        && left.right > right.left
+        && left.bottom < right.top
+        && left.top > right.bottom;
 }
 
 function runRound(
@@ -115,6 +140,25 @@ for (let index = 0; index < ratios.length; index += 1) {
     const workspace = calculateWorkspaceLayout(layout.workspaceHeight);
     const startLayout = calculateStartPageLayout(viewport);
     const selectLayout = calculateLevelSelectLayout(viewport, 5);
+    const overlayLayout = calculateFullscreenOverlayLayout(viewport);
+    const backgroundLayout = calculateFullBleedBackgroundLayout(viewport);
+    const coverLayout = calculateCoverLayout(backgroundLayout.width, backgroundLayout.height, 750, 1334);
+    assert(
+        backgroundLayout.x === 0
+        && backgroundLayout.y === 0
+        && backgroundLayout.width === 750
+        && backgroundLayout.height === viewport.height,
+        `${ratio.name} FullBleedBackground 必须覆盖完整可视设计区域`,
+    );
+    assert(
+        coverLayout.renderedWidth + 0.01 >= backgroundLayout.width
+        && coverLayout.renderedHeight + 0.01 >= backgroundLayout.height,
+        `${ratio.name} cover 背景不得出现白边、黑边或断层`,
+    );
+    assert(
+        Math.abs(coverLayout.renderedWidth / coverLayout.renderedHeight - 750 / 1334) < 0.0001,
+        `${ratio.name} cover 背景不得非等比拉伸`,
+    );
     assert(layout.headerY < viewport.safeTop, `${ratio.name} 标题必须位于顶部安全区内`);
     assert(layout.bossY < layout.headerY, `${ratio.name} 老板进度必须位于标题下方`);
     assert(layout.taskY < layout.bossY, `${ratio.name} 任务清单必须位于老板进度下方`);
@@ -169,6 +213,28 @@ for (let index = 0; index < ratios.length; index += 1) {
     assert(selectLayout.titleY > selectLayout.listTop, `${ratio.name} 关卡标题必须位于列表上方`);
     assert(selectLayout.entryHeight >= 108 && selectLayout.entryHeight <= 126, `${ratio.name} 关卡记录行应保持紧凑`);
     assert(selectLayout.backButtonY < selectLayout.listBottom, `${ratio.name} 返回首页必须位于列表下方`);
+    const selectContentTop = selectLayout.panelY + selectLayout.panelHeight / 2;
+    const selectContentBottom = selectLayout.panelY - selectLayout.panelHeight / 2;
+    assert(selectContentTop <= viewport.safeTop, `${ratio.name} 选关内容顶部不得超出安全区`);
+    assert(selectContentBottom >= viewport.safeBottom, `${ratio.name} 选关内容底部不得超出安全区`);
+    const firstEntryTop = selectLayout.panelY + selectLayout.listTop;
+    const lastEntryBottom = selectLayout.panelY
+        + selectLayout.listTop
+        - 4 * (selectLayout.entryHeight + selectLayout.entryGap)
+        - selectLayout.entryHeight;
+    assert(firstEntryTop <= viewport.safeTop, `${ratio.name} 第一张关卡卡片不得超出安全区`);
+    assert(lastEntryBottom >= viewport.safeBottom, `${ratio.name} 第五张关卡卡片不得超出安全区`);
+    assert(
+        selectLayout.panelY + selectLayout.backButtonY - 41 >= viewport.safeBottom,
+        `${ratio.name} 返回首页按钮不得超出底部安全区`,
+    );
+    assert(
+        overlayLayout.x === 0
+        && overlayLayout.y === 0
+        && overlayLayout.width === viewport.width
+        && overlayLayout.height === viewport.height,
+        `${ratio.name} 教学、检查和结算遮罩必须完整覆盖屏幕`,
+    );
     const occupiedListHeight = selectLayout.entryHeight * 5 + selectLayout.entryGap * 4;
     assert(
         Math.abs(occupiedListHeight - (selectLayout.listTop - selectLayout.listBottom)) < 0.01,
@@ -180,6 +246,74 @@ for (let index = 0; index < ratios.length; index += 1) {
     if (index === ratios.length - 1) {
         tallWorkspaceHeight = layout.workspaceHeight;
     }
+}
+
+assert(readDouyinMenuButtonRect({}) === null, 'Web 环境不得伪造抖音胶囊安全区');
+assert(
+    readDouyinMenuButtonRect({ tt: { getMenuButtonBoundingClientRect: () => { throw new Error('unsupported'); } } }) === null,
+    '抖音胶囊接口异常时必须安全降级',
+);
+const simulatedMenuRect = readDouyinMenuButtonRect({
+    tt: {
+        getMenuButtonBoundingClientRect: () => ({ left: 270, top: 14, right: 382, bottom: 53 }),
+    },
+});
+assert(simulatedMenuRect !== null, '应通过能力检测读取抖音胶囊矩形');
+
+for (const ratio of ratios.filter((entry) => entry.name === '393x852' || entry.name === '393x873')) {
+    const webViewport = calculateFixedWidthViewport(ratio.width, ratio.height, 750, 1334);
+    const unchangedWebViewport = reserveDouyinMenuButtonSafeArea(
+        webViewport,
+        ratio.width,
+        ratio.height,
+        750,
+        null,
+    );
+    assert(unchangedWebViewport === webViewport, `${ratio.name} Web 布局必须保持原有效果`);
+    if (simulatedMenuRect === null) { continue; }
+    const menuRect = convertScreenRectToViewport(simulatedMenuRect, ratio.width, ratio.height, 750);
+    assert(menuRect !== null, `${ratio.name} 胶囊矩形应能转换到设计坐标`);
+    if (menuRect === null) { continue; }
+    const douyinViewport = reserveDouyinMenuButtonSafeArea(
+        webViewport,
+        ratio.width,
+        ratio.height,
+        750,
+        simulatedMenuRect,
+    );
+    const gameLayout = calculatePortraitGameLayout(douyinViewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
+    const startLayout = calculateStartPageLayout(douyinViewport);
+    const selectLayout = calculateLevelSelectLayout(douyinViewport, 5);
+    const levelSelectTitleY = selectLayout.panelY + selectLayout.titleY;
+    const protectedNodes = [
+        { name: '首页标题', rect: centeredRect(0, startLayout.titleY, 610, 96) },
+        { name: '设置按钮', rect: centeredRect(284, douyinViewport.safeTop - 50, 112, 80) },
+        { name: '游戏页标题', rect: centeredRect(-175, gameLayout.headerY, 320, 54) },
+        { name: '退出按钮', rect: centeredRect(284, gameLayout.headerY, 112, 80) },
+        { name: '选关页标题', rect: centeredRect(0, levelSelectTitleY, 560, 64) },
+    ];
+    for (let index = 0; index < 5; index += 1) {
+        protectedNodes.push({
+            name: `第${index + 1}张关卡卡片`,
+            rect: centeredRect(
+                0,
+                selectLayout.panelY
+                    + selectLayout.listTop
+                    - selectLayout.entryHeight / 2
+                    - index * (selectLayout.entryHeight + selectLayout.entryGap),
+                610,
+                selectLayout.entryHeight,
+            ),
+        });
+    }
+    for (const node of protectedNodes) {
+        assert(!intersects(node.rect, menuRect), `${ratio.name} ${node.name}不得与抖音胶囊相交`);
+    }
+    const overlayLayout = calculateFullscreenOverlayLayout(douyinViewport);
+    assert(
+        overlayLayout.width === douyinViewport.width && overlayLayout.height === douyinViewport.height,
+        `${ratio.name} 抖音安全区调整后弹窗遮罩仍须完整覆盖屏幕`,
+    );
 }
 
 assert(tallWorkspaceHeight > baseWorkspaceHeight, '长屏增加的空间应优先扩展工位区域');

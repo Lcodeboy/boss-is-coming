@@ -62,40 +62,9 @@ export function paintButton(node: Node, variant: ThemeButtonVariant): void {
     }
 }
 
-/** 绘制开始页的电梯厅。高度来自可视区域，保证长屏不是单色留白。 */
+/** 创建开始页电梯前景；整屏场景由 FullBleedBackground 独立负责。 */
 export function createElevatorHall(parent: Node, viewport: FixedWidthViewport): Node {
     const hall = createUiNode(parent, 'ElevatorHall', viewport.width, viewport.height);
-    const graphics = hall.addComponent(Graphics);
-    const halfWidth = viewport.width / 2;
-    const halfHeight = viewport.height / 2;
-    graphics.fillColor = Palette.backgroundDeep;
-    graphics.rect(-halfWidth, -halfHeight, viewport.width, viewport.height);
-    graphics.fill();
-
-    const wallTop = viewport.safeTop - 220;
-    const floorTop = viewport.safeBottom + Math.max(220, viewport.safeHeight * 0.22);
-    graphics.fillColor = Palette.backgroundSoft;
-    graphics.rect(-halfWidth, floorTop, viewport.width, wallTop - floorTop);
-    graphics.fill();
-    graphics.fillColor = new Color(35, 51, 61, 255);
-    graphics.rect(-halfWidth, viewport.safeBottom, viewport.width, floorTop - viewport.safeBottom);
-    graphics.fill();
-
-    graphics.lineWidth = 3;
-    graphics.strokeColor = new Color(77, 96, 106, 150);
-    for (let index = -3; index <= 3; index += 1) {
-        const x = index * 125;
-        graphics.moveTo(0, floorTop);
-        graphics.lineTo(x, viewport.safeBottom);
-    }
-    for (let row = 1; row <= 4; row += 1) {
-        const amount = row / 4;
-        const y = floorTop + (viewport.safeBottom - floorTop) * amount;
-        graphics.moveTo(-halfWidth, y);
-        graphics.lineTo(halfWidth, y);
-    }
-    graphics.stroke();
-
     const layout = calculateStartPageLayout(viewport);
     const elevatorWidth = 520;
     const frame = createUiNode(hall, 'ElevatorFrame', elevatorWidth, layout.elevatorHeight);

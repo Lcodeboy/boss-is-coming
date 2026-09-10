@@ -71,6 +71,26 @@ export interface StartPageLayout {
     readonly bossY: number;
 }
 
+export interface FullscreenOverlayLayout {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+}
+
+export interface FullBleedBackgroundLayout {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+}
+
+export interface CoverLayout {
+    readonly scale: number;
+    readonly renderedWidth: number;
+    readonly renderedHeight: number;
+}
+
 export const WORKSPACE_BASE_CONTENT_HEIGHT = 690;
 export const WORKSPACE_TITLE_BASELINE_Y = 306;
 export const WORKSPACE_TITLE_HEIGHT = 42;
@@ -228,6 +248,44 @@ export function calculateStartPageLayout(viewport: FixedWidthViewport): StartPag
         alertY: elevatorTop - 56,
         startButtonY: viewport.safeBottom + 86,
         bossY: viewport.safeBottom + 238,
+    };
+}
+
+/** 教学、检查、结算等阻塞层始终完整覆盖当前可视根节点。 */
+export function calculateFullscreenOverlayLayout(viewport: FixedWidthViewport): FullscreenOverlayLayout {
+    return {
+        x: 0,
+        y: 0,
+        width: viewport.width,
+        height: viewport.height,
+    };
+}
+
+/** 全屏背景始终覆盖 FIXED_WIDTH 换算后的完整可视设计区域，而不是只覆盖安全区。 */
+export function calculateFullBleedBackgroundLayout(viewport: FixedWidthViewport): FullBleedBackgroundLayout {
+    return {
+        x: 0,
+        y: 0,
+        width: viewport.width,
+        height: viewport.height,
+    };
+}
+
+/** 等比 cover：统一缩放源图，允许超出屏幕的边缘被裁切，绝不分别拉伸宽高。 */
+export function calculateCoverLayout(
+    viewportWidth: number,
+    viewportHeight: number,
+    sourceWidth: number,
+    sourceHeight: number,
+): CoverLayout {
+    if (viewportWidth <= 0 || viewportHeight <= 0 || sourceWidth <= 0 || sourceHeight <= 0) {
+        return { scale: 0, renderedWidth: 0, renderedHeight: 0 };
+    }
+    const scale = Math.max(viewportWidth / sourceWidth, viewportHeight / sourceHeight);
+    return {
+        scale,
+        renderedWidth: sourceWidth * scale,
+        renderedHeight: sourceHeight * scale,
     };
 }
 

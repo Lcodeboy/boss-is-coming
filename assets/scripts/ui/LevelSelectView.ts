@@ -30,15 +30,11 @@ export class LevelSelectView extends Component {
         onBack: () => void,
     ): void {
         const layout = calculateLevelSelectLayout(viewport, levels.length);
-        const card = createRoundedPanel(
+        const card = createUiNode(
             this.node,
-            'LevelSelectCard',
+            'LevelSelectContent',
             680,
             layout.panelHeight,
-            Palette.backgroundSoft,
-            28,
-            Palette.elevatorMetal,
-            3,
         );
         card.setPosition(0, layout.panelY);
         const consoleLabel = createLabel(card, 'ConsoleLabel', '电梯突击记录', 590, 34, {

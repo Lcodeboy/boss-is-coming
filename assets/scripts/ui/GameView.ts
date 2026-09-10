@@ -5,6 +5,7 @@ import {
     Component,
     Label,
     Node,
+    SpriteFrame,
     Tween,
     tween,
     UIOpacity,
@@ -13,11 +14,13 @@ import {
 } from 'cc';
 import { AudioFeedback } from '../core/AudioFeedback';
 import { BossApproachSnapshot } from '../core/BossApproachModel';
+import { readDouyinMenuButtonRect, reserveDouyinMenuButtonSafeArea } from '../core/DouyinSafeArea';
 import { GameState } from '../core/GameStateMachine';
 import { LevelSessionSnapshot, LevelSessionUpdate } from '../core/LevelSession';
 import { ProgressData } from '../core/ProgressService';
 import {
     calculateFixedWidthViewport,
+    calculateFullscreenOverlayLayout,
     calculatePortraitGameLayout,
     calculateStartPageLayout,
     calculateWorkspaceLayout,
@@ -34,6 +37,7 @@ import { DropZone } from '../game/DropZone';
 import { WorkItem } from '../game/WorkItem';
 import { BossApproachView } from './BossApproachView';
 import { EventMessageView } from './EventMessageView';
+import { FullBleedBackground, FullBleedBackgroundKind } from './FullBleedBackground';
 import { InspectionFinished, InspectionStep, InspectionView } from './InspectionView';
 import { LevelSelectView } from './LevelSelectView';
 import { ResultActions, ResultPresentation, ResultView } from './ResultView';
@@ -96,6 +100,8 @@ export class GameView extends Component {
     private _resumeOverlay: Node | null = null;
     private _settingsView: SettingsView | null = null;
     private _edgePulse: UIOpacity | null = null;
+    private _homeBackground: FullBleedBackground | null = null;
+    private _levelSelectBackground: FullBleedBackground | null = null;
 
     public initialize(
         levels: readonly LevelConfig[],
@@ -108,12 +114,19 @@ export class GameView extends Component {
         }
         const frameSize = view.getFrameSize();
         const safeArea = sys.getSafeAreaRect(false);
-        this._viewport = calculateFixedWidthViewport(
+        const baseViewport = calculateFixedWidthViewport(
             frameSize.width,
             frameSize.height,
             DESIGN_WIDTH,
             DESIGN_HEIGHT,
             { y: safeArea.y, height: safeArea.height },
+        );
+        this._viewport = reserveDouyinMenuButtonSafeArea(
+            baseViewport,
+            frameSize.width,
+            frameSize.height,
+            DESIGN_WIDTH,
+            readDouyinMenuButtonRect(),
         );
         this._actions = actions;
         this._audio = audio;
@@ -233,6 +246,14 @@ export class GameView extends Component {
         this._resultView?.show(result);
     }
 
+    public setHomeBackgroundSpriteFrame(spriteFrame: SpriteFrame | null): void {
+        this._homeBackground?.setSpriteFrame(spriteFrame);
+    }
+
+    public setLevelSelectBackgroundSpriteFrame(spriteFrame: SpriteFrame | null): void {
+        this._levelSelectBackground?.setSpriteFrame(spriteFrame);
+    }
+
     public cancelGameplay(): void {
         this.cancelTransientViews();
         this.setLevelActive(false);
@@ -265,7 +286,7 @@ export class GameView extends Component {
     private buildBackground(): void {
         const gameLayout = calculatePortraitGameLayout(this._viewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
         this._gameRoot = createUiNode(this.node, 'GameRoot', this._viewport.width, this._viewport.height);
-        createRoundedPanel(this._gameRoot, 'Background', this._viewport.width, this._viewport.height, Palette.background, 0);
+        this.createFullBleedBackground(this._gameRoot, 'FullBleedBackground', 'game');
         const accentHeight = Math.max(180, this._viewport.topSafeInset + 190);
         const topAccent = createRoundedPanel(
             this._gameRoot,
@@ -305,7 +326,12 @@ export class GameView extends Component {
         if (this._gameRoot === null || this._actions === null) {
             return;
         }
-        this._startOverlay = this.createBlockingOverlay('StartOverlay', Palette.backgroundDeep);
+        this._startOverlay = this.createBlockingOverlay('StartOverlay', new Color(0, 0, 0, 0));
+        this._homeBackground = this.createFullBleedBackground(
+            this._startOverlay,
+            'HomeFullBleedBackground',
+            'home',
+        );
         const hall = createElevatorHall(this._startOverlay, this._viewport);
         const startLayout = calculateStartPageLayout(this._viewport);
         const title = createLabel(hall, 'Title', '老板要来了', 610, 96, {
@@ -361,7 +387,12 @@ export class GameView extends Component {
         if (this._gameRoot === null || this._actions === null) {
             return;
         }
-        const node = this.createBlockingOverlay('LevelSelectOverlay', Palette.backgroundDeep);
+        const node = this.createBlockingOverlay('LevelSelectOverlay', new Color(0, 0, 0, 0));
+        this._levelSelectBackground = this.createFullBleedBackground(
+            node,
+            'LevelSelectFullBleedBackground',
+            'level-select',
+        );
         this._levelSelectView = node.addComponent(LevelSelectView);
         this._levelSelectView.initialize(levels, this._viewport, this._actions.onSelectLevel, this._actions.onReturnHome);
     }
@@ -658,9 +689,23 @@ export class GameView extends Component {
         if (this._gameRoot === null) {
             throw new Error('GameRoot 尚未初始化');
         }
-        const overlay = createRoundedPanel(this._gameRoot, name, this._viewport.width, this._viewport.height, color, 0);
+        const layout = calculateFullscreenOverlayLayout(this._viewport);
+        const overlay = createRoundedPanel(this._gameRoot, name, layout.width, layout.height, color, 0);
+        overlay.setPosition(layout.x, layout.y);
         overlay.addComponent(BlockInputEvents);
         return overlay;
+    }
+
+    private createFullBleedBackground(
+        parent: Node,
+        name: string,
+        kind: FullBleedBackgroundKind,
+    ): FullBleedBackground {
+        const node = createUiNode(parent, name, this._viewport.width, this._viewport.height);
+        const background = node.addComponent(FullBleedBackground);
+        background.initialize(this._viewport, kind);
+        node.setSiblingIndex(0);
+        return background;
     }
 
     private createButton(
