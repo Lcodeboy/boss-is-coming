@@ -84,8 +84,19 @@ Web Mobile：
 ```bash
 "/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Contents/MacOS/CocosCreator" \
   --project "$PWD" \
-  --build "platform=bytedance-mini-game;name=老板要来了;outputName=bytedance-mini-game;startScene=f23a029a-6115-4e32-b852-c1546586bcaa"
+  --build "configPath=./build-configs/bytedance-mini-game.json"
 ```
+
+构建完成后，在抖音开发者工具中导入以下目录，而不是 Cocos 工程根目录：
+
+```text
+build/bytedance-mini-game
+```
+
+该发布目录会包含抖音小游戏必需的 `game.js`、`game.json` 和
+`project.config.json`。项目通过 `build-templates/bytedance-mini-game/` 固化竖屏、
+状态栏和网络超时等配置，并通过 `build-configs/bytedance-mini-game.json` 固化正式
+AppID 和抖音平台构建参数。不要把 AppSecret 写入工程。
 
 ## Creator 人工验收
 
