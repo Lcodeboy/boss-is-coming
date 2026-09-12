@@ -38,7 +38,12 @@ export class GameLifecycleService {
         if (hidden === this._hidden) { return; }
         this._hidden = hidden;
         const state = this._state();
-        if (hidden && (state === GameState.PLAYING || state === GameState.PREPARED)) { this._needsContinue = true; }
+        if (
+            hidden
+            && (state === GameState.PLAYING || state === GameState.PREPARED || state === GameState.INSPECTING)
+        ) {
+            this._needsContinue = true;
+        }
         this._onChange(this.snapshot);
     }
 }

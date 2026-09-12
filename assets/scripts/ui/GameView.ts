@@ -3,6 +3,7 @@ import {
     BlockInputEvents,
     Color,
     Component,
+    HorizontalTextAlignment,
     Label,
     Node,
     SpriteFrame,
@@ -14,14 +15,21 @@ import {
 } from 'cc';
 import { AudioFeedback } from '../core/AudioFeedback';
 import { BossApproachSnapshot } from '../core/BossApproachModel';
-import { readDouyinMenuButtonRect, reserveDouyinMenuButtonSafeArea } from '../core/DouyinSafeArea';
+import {
+    convertScreenRectToViewport,
+    readDouyinMenuButtonRect,
+    reserveDouyinMenuButtonSafeArea,
+    ViewportRectData,
+} from '../core/DouyinSafeArea';
 import { GameState } from '../core/GameStateMachine';
 import { LevelSessionSnapshot, LevelSessionUpdate } from '../core/LevelSession';
 import { ProgressData } from '../core/ProgressService';
 import {
     calculateFixedWidthViewport,
     calculateFullscreenOverlayLayout,
+    calculateGameTopNavigationLayout,
     calculatePortraitGameLayout,
+    calculateSafeModalLayout,
     calculateStartPageLayout,
     calculateWorkspaceLayout,
     DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
@@ -45,11 +53,14 @@ import { TaskPanelView } from './TaskPanelView';
 import { TutorialView } from './TutorialView';
 import { createLabel, createRoundedPanel, createUiNode, DESIGN_HEIGHT, DESIGN_WIDTH, Palette } from './UIFactory';
 import {
+    createBackArrowButton,
     createElevatorHall,
+    createModalCard,
     createThemedButton,
     paintBossSilhouette,
     paintFormalDesk,
     paintFormalOfficeFloor,
+    paintStorageArea,
     paintWorkspaceDepth,
 } from './VisualFactory';
 import { ThemeButtonVariant } from './VisualTheme';
@@ -100,6 +111,8 @@ export class GameView extends Component {
     private _resumeOverlay: Node | null = null;
     private _settingsView: SettingsView | null = null;
     private _edgePulse: UIOpacity | null = null;
+    private _menuButtonRect: ViewportRectData | null = null;
+    private _gameBackground: FullBleedBackground | null = null;
     private _homeBackground: FullBleedBackground | null = null;
     private _levelSelectBackground: FullBleedBackground | null = null;
 
@@ -121,12 +134,21 @@ export class GameView extends Component {
             DESIGN_HEIGHT,
             { y: safeArea.y, height: safeArea.height },
         );
+        const menuButtonRect = readDouyinMenuButtonRect();
+        this._menuButtonRect = menuButtonRect === null
+            ? null
+            : convertScreenRectToViewport(
+                menuButtonRect,
+                frameSize.width,
+                frameSize.height,
+                DESIGN_WIDTH,
+            );
         this._viewport = reserveDouyinMenuButtonSafeArea(
             baseViewport,
             frameSize.width,
             frameSize.height,
             DESIGN_WIDTH,
-            readDouyinMenuButtonRect(),
+            menuButtonRect,
         );
         this._actions = actions;
         this._audio = audio;
@@ -250,6 +272,10 @@ export class GameView extends Component {
         this._homeBackground?.setSpriteFrame(spriteFrame);
     }
 
+    public setGameBackgroundSpriteFrame(spriteFrame: SpriteFrame | null): void {
+        this._gameBackground?.setSpriteFrame(spriteFrame);
+    }
+
     public setLevelSelectBackgroundSpriteFrame(spriteFrame: SpriteFrame | null): void {
         this._levelSelectBackground?.setSpriteFrame(spriteFrame);
     }
@@ -284,9 +310,8 @@ export class GameView extends Component {
     }
 
     private buildBackground(): void {
-        const gameLayout = calculatePortraitGameLayout(this._viewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
         this._gameRoot = createUiNode(this.node, 'GameRoot', this._viewport.width, this._viewport.height);
-        this.createFullBleedBackground(this._gameRoot, 'FullBleedBackground', 'game');
+        this._gameBackground = this.createFullBleedBackground(this._gameRoot, 'FullBleedBackground', 'game');
         const accentHeight = Math.max(180, this._viewport.topSafeInset + 190);
         const topAccent = createRoundedPanel(
             this._gameRoot,
@@ -297,26 +322,12 @@ export class GameView extends Component {
             0,
         );
         topAccent.setPosition(0, this._viewport.height / 2 - accentHeight / 2);
-        const brand = createLabel(
-            this._gameRoot,
-            'Brand',
-            '老板要来了',
-            320,
-            DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.headerHeight,
-            {
-                fontSize: 32,
-                color: Palette.white,
-                bold: true,
-                wrap: false,
-            },
-        );
-        brand.node.setPosition(-175, gameLayout.headerY);
         const floorLine = createRoundedPanel(
             this._gameRoot,
             'FloorLine',
             this._viewport.width,
-            8,
-            new Color(202, 199, 187, 255),
+            6,
+            new Color(112, 135, 143, 120),
             0,
         );
         floorLine.setPosition(0, this._viewport.safeBottom + 76);
@@ -403,22 +414,24 @@ export class GameView extends Component {
         }
         const tutorialNode = this.createBlockingOverlay('TutorialOverlay', Palette.overlay);
         this._tutorialView = tutorialNode.addComponent(TutorialView);
-        this._tutorialView.initialize(this._actions.onTutorialAcknowledged);
+        this._tutorialView.initialize(this._viewport, this._actions.onTutorialAcknowledged);
 
         const inspectionNode = this.createBlockingOverlay('InspectionOverlay', Palette.overlay);
         this._inspectionView = inspectionNode.addComponent(InspectionView);
-        this._inspectionView.initialize();
+        this._inspectionView.initialize(this._viewport);
 
         const resultNode = this.createBlockingOverlay('ResultOverlay', Palette.overlay);
         this._resultView = resultNode.addComponent(ResultView);
-        this._resultView.initialize(this._actions);
+        this._resultView.initialize(this._viewport, this._actions);
 
         const settingsNode = this.createBlockingOverlay('SettingsOverlay', Palette.overlay);
         this._settingsView = settingsNode.addComponent(SettingsView);
-        if (this._audio !== null) { this._settingsView.initialize(this._audio.settings); }
+        if (this._audio !== null) { this._settingsView.initialize(this._viewport, this._audio.settings); }
 
         this._resumeOverlay = this.createBlockingOverlay('ResumeOverlay', Palette.overlay);
-        const card = createRoundedPanel(this._resumeOverlay, 'ResumeCard', 600, 310, Palette.panel, 30);
+        const resumeCardHeight = 310;
+        const card = createModalCard(this._resumeOverlay, 'ResumeCard', 600, resumeCardHeight, Palette.blue);
+        card.setPosition(0, calculateSafeModalLayout(this._viewport, resumeCardHeight).centerY);
         createLabel(card, 'PauseTitle', '整理已暂停', 510, 64, { fontSize: 38, color: Palette.ink, bold: true }).node.setPosition(0, 74);
         const continueButton = this.createButton(card, 'ContinueButton', '继续整理', this._actions.onContinue, 330, 94);
         continueButton.setPosition(0, -58);
@@ -446,49 +459,59 @@ export class GameView extends Component {
         if (this._gameRoot === null || this._actions === null || this._audio === null) {
             return;
         }
-        const layout = calculatePortraitGameLayout(this._viewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
+        const navigation = calculateGameTopNavigationLayout(this._viewport, this._menuButtonRect);
+        const layout = calculatePortraitGameLayout(
+            this._viewport,
+            DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
+            navigation.y,
+        );
         this._gameLayer = createUiNode(this._gameRoot, 'GameLayer', DESIGN_WIDTH, this._viewport.height);
         const formal = true;
-        const bossNode = createRoundedPanel(this._gameLayer, 'BossApproach', 680, 190, Palette.panel, 22);
+        const backButton = createBackArrowButton(
+            this._gameLayer,
+            'GameBackButton',
+            this._actions.onAbortLevel,
+            navigation.backButtonSize,
+        );
+        backButton.setPosition(navigation.backButtonX, navigation.y);
+        const title = createLabel(
+            this._gameLayer,
+            'GameTitle',
+            '老板要来了',
+            navigation.titleWidth,
+            navigation.titleHeight,
+            {
+                fontSize: 32,
+                color: Palette.white,
+                horizontalAlign: HorizontalTextAlignment.LEFT,
+                bold: true,
+                wrap: false,
+            },
+        );
+        title.node.setPosition(navigation.titleX, navigation.y);
+        const bossNode = createUiNode(this._gameLayer, 'BossApproach', 680, 190);
         bossNode.setPosition(0, layout.bossY);
         this._bossView = bossNode.addComponent(BossApproachView);
         this._bossView.initialize(formal);
 
-        const taskNode = createRoundedPanel(this._gameLayer, 'TaskPanel', 680, 164, Palette.panel, 20);
+        const taskNode = createUiNode(this._gameLayer, 'TaskPanel', 680, 164);
         taskNode.setPosition(0, layout.taskY);
         this._taskView = taskNode.addComponent(TaskPanelView);
         this._taskView.initialize(level.tasks, snapshot.activeTaskIds, formal);
-        const abortButton = this.createButton(
-            this._gameLayer,
-            'AbortButton',
-            '退出',
-            this._actions.onAbortLevel,
-            112,
-            80,
-            'quiet',
-        );
-        abortButton.setPosition(284, layout.headerY);
-
-        const workspace = createRoundedPanel(
+        // Workspace 只保留原尺寸和定位坐标，不再绘制包围整个工位的浅色圆角卡片。
+        const workspace = createUiNode(
             this._gameLayer,
             'Workspace',
             700,
             layout.workspaceHeight,
-            formal ? Palette.officeWall : new Color(230, 231, 226, 255),
-            24,
-            Palette.paleBlue,
         );
         workspace.setPosition(0, layout.workspaceY);
         const workspaceLayout = calculateWorkspaceLayout(layout.workspaceHeight);
-        const floor = createRoundedPanel(
+        const floor = createUiNode(
             workspace,
             'OfficeFloor',
-            660,
+            DESIGN_WIDTH,
             workspaceLayout.floorHeight,
-            formal ? Palette.officeFloor : new Color(215, 220, 218, 255),
-            22,
-            new Color(194, 205, 207, 255),
-            3,
         );
         floor.setPosition(0, workspaceLayout.floorY);
         if (formal) {
@@ -496,25 +519,22 @@ export class GameView extends Component {
             const workspaceDepth = createUiNode(
                 workspace,
                 'WorkspaceDepth',
-                660,
+                DESIGN_WIDTH,
                 layout.workspaceHeight,
             );
             paintWorkspaceDepth(workspaceDepth, workspaceLayout);
         }
-        const targetBand = createRoundedPanel(
+        const targetBand = createUiNode(
             workspace,
             'TargetBand',
-            650,
+            DESIGN_WIDTH,
             workspaceLayout.targetBandHeight,
-            formal ? Palette.storageBand : new Color(205, 215, 218, 255),
-            20,
-            Palette.blueGray,
-            2,
         );
         targetBand.setPosition(0, workspaceLayout.targetBandY);
+        paintStorageArea(targetBand);
         const targetBandTitle = createLabel(targetBand, 'TargetBandTitle', formal ? '快速收纳区' : '收纳处理区', 190, 34, {
             fontSize: 19,
-            color: Palette.blueGrayDark,
+            color: Palette.mutedLight,
             bold: true,
             wrap: false,
         });
@@ -534,14 +554,11 @@ export class GameView extends Component {
             WORKSPACE_BASE_CONTENT_HEIGHT,
         );
         bottomContent.setPosition(0, workspaceLayout.bottomContentY);
-        const desk = createRoundedPanel(
+        const desk = createUiNode(
             workspaceContent,
             'Desk',
             660,
             WORKSPACE_DESK_HEIGHT,
-            new Color(178, 193, 201, 255),
-            24,
-            Palette.blueGray,
         );
         desk.setPosition(0, WORKSPACE_DESK_BASELINE_Y);
         if (formal) {
@@ -555,7 +572,7 @@ export class GameView extends Component {
             WORKSPACE_TITLE_HEIGHT,
             {
                 fontSize: 24,
-                color: Palette.blueGrayDark,
+                color: Palette.white,
                 bold: true,
                 wrap: false,
             },
@@ -564,13 +581,11 @@ export class GameView extends Component {
 
         for (const zoneConfig of level.zones) {
             const zoneParent = zoneConfig.position.y >= 0 ? workspaceContent : bottomContent;
-            const zoneNode = createRoundedPanel(
+            const zoneNode = createUiNode(
                 zoneParent,
                 `Zone-${zoneConfig.id}`,
                 zoneConfig.size.width,
                 zoneConfig.size.height,
-                Palette.paleBlue,
-                16,
             );
             const zone = zoneNode.addComponent(DropZone);
             zone.configure(zoneConfig, formal);
@@ -628,19 +643,18 @@ export class GameView extends Component {
         }
         this._introOverlay = this.createBlockingOverlay('IntroOverlay', Palette.overlay);
         const formal = level.order === 1;
-        const card = createRoundedPanel(
+        const introCardHeight = 760;
+        const card = createModalCard(
             this._introOverlay,
             'IntroCard',
             650,
-            850,
-            Palette.panel,
-            30,
+            introCardHeight,
             formal ? Palette.blue : Palette.warning,
-            4,
         );
+        card.setPosition(0, calculateSafeModalLayout(this._viewport, introCardHeight).centerY);
         if (formal) {
             const eyebrow = createRoundedPanel(card, 'UrgentBadge', 170, 46, Palette.warningPale, 23);
-            eyebrow.setPosition(0, 378);
+            eyebrow.setPosition(0, 342);
             createLabel(eyebrow, 'UrgentText', '办公室警报', 150, 34, {
                 fontSize: 18,
                 color: Palette.warning,
@@ -654,12 +668,12 @@ export class GameView extends Component {
             bold: true,
             wrap: false,
         });
-        title.node.setPosition(0, 320);
+        title.node.setPosition(0, 286);
         const intro = createLabel(card, 'IntroText', level.intro, 550, 145, {
             fontSize: 27,
             color: Palette.ink,
         });
-        intro.node.setPosition(0, 215);
+        intro.node.setPosition(0, 188);
         const listPanel = createRoundedPanel(card, 'IntroTasks', 550, 330, Palette.paleBlue, 20);
         listPanel.setPosition(0, -18);
         const listTitle = createLabel(listPanel, 'ListTitle', `${level.durationSeconds} 秒整理目标`, 470, 48, {
@@ -680,9 +694,9 @@ export class GameView extends Component {
             label.node.setPosition(0, 68 - index * 58);
         }
         const beginButton = this.createButton(card, 'BeginButton', '马上整理', this._actions.onBeginLevel, 300, 94, 'primary');
-        beginButton.setPosition(155, -337);
+        beginButton.setPosition(155, -306);
         const backButton = this.createButton(card, 'BackButton', '返回关卡', this._actions.onAbortLevel, 220, 94, 'secondary');
-        backButton.setPosition(-165, -337);
+        backButton.setPosition(-165, -306);
     }
 
     private createBlockingOverlay(name: string, color: Color): Node {
@@ -703,7 +717,10 @@ export class GameView extends Component {
     ): FullBleedBackground {
         const node = createUiNode(parent, name, this._viewport.width, this._viewport.height);
         const background = node.addComponent(FullBleedBackground);
-        background.initialize(this._viewport, kind);
+        const gameNavigationY = kind === 'game'
+            ? calculateGameTopNavigationLayout(this._viewport, this._menuButtonRect).y
+            : undefined;
+        background.initialize(this._viewport, kind, gameNavigationY);
         node.setSiblingIndex(0);
         return background;
     }

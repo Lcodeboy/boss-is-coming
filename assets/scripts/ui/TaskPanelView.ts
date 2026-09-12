@@ -20,14 +20,14 @@ export class TaskPanelView extends Component {
         activeTaskIds.forEach((taskId) => this._activeTaskIds.add(taskId));
         drawRoundedPanel(
             this.node,
-            Palette.panel,
+            formal ? Palette.hudPanel : Palette.panel,
             20,
-            formal ? Palette.blueGray : Palette.paleBlue,
-            formal ? 2 : 3,
+            formal ? Palette.hudStroke : Palette.paleBlue,
+            formal ? 1.5 : 3,
         );
         this._countLabel = createLabel(this.node, 'TaskCount', '', 250, 42, {
             fontSize: 24,
-            color: Palette.ink,
+            color: formal ? Palette.white : Palette.ink,
             bold: true,
             wrap: false,
         });
@@ -36,7 +36,7 @@ export class TaskPanelView extends Component {
         for (const task of tasks) {
             const label = createLabel(this.node, `Task-${task.id}`, '', 310, 50, {
                 fontSize: 20,
-                color: Palette.muted,
+                color: formal ? Palette.mutedLight : Palette.muted,
                 wrap: false,
             });
             this._taskLabels.set(task.id, label);
@@ -98,7 +98,7 @@ export class TaskPanelView extends Component {
         }
         const completed = this._completedTaskIds.has(taskId);
         label.string = `${completed ? '✓' : '○'} ${task.prompt}`;
-        label.color = completed ? Palette.success : this._formal ? Palette.ink : Palette.muted;
+        label.color = completed ? Palette.success : this._formal ? Palette.mutedLight : Palette.muted;
     }
 
     private refreshCount(): void {

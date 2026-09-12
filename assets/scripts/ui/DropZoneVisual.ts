@@ -123,7 +123,7 @@ export class DropZoneVisual extends Component {
             this._label.string = this._progressText ?? this.zoneLabel(config);
             this._label.color = this._completed
                 ? Palette.success
-                : this._highlighted ? Palette.blue : Palette.blueGrayDark;
+                : this._highlighted ? Palette.blue : this.labelColor(config);
         }
     }
 
@@ -285,6 +285,13 @@ export class DropZoneVisual extends Component {
             return config.size.height / 2 + 30;
         }
         return 0;
+    }
+
+    private labelColor(config: DropZoneConfig): Color {
+        if (this._formal && (config.visual === 'drawer' || config.visual === 'trash')) {
+            return Palette.mutedLight;
+        }
+        return Palette.blueGrayDark;
     }
 
     private createProgressText(completed: number, total: number): string | null {

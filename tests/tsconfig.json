@@ -15,6 +15,7 @@
     "../assets/scripts/core/DouyinSafeArea.ts",
     "../assets/scripts/core/GameStateMachine.ts",
     "../assets/scripts/core/InspectionSequence.ts",
+    "../assets/scripts/core/InspectionAnimation.ts",
     "../assets/scripts/core/LevelSession.ts",
     "../assets/scripts/core/ProgressService.ts",
     "../assets/scripts/core/TaskTracker.ts",

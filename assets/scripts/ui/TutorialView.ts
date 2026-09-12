@@ -1,7 +1,8 @@
 import { _decorator, Component, Label } from 'cc';
+import { calculateSafeModalLayout, FixedWidthViewport } from '../core/ViewportLayout';
 import { ActionButton } from './ActionButton';
 import { createLabel, createRoundedPanel, drawRoundedPanel, Palette } from './UIFactory';
-import { createThemedButton } from './VisualFactory';
+import { createModalCard, createThemedButton } from './VisualFactory';
 
 const { ccclass } = _decorator;
 
@@ -11,9 +12,11 @@ export class TutorialView extends Component {
     private _firstLabel: Label | null = null;
     private _secondLabel: Label | null = null;
 
-    public initialize(onConfirm: () => void): void {
+    public initialize(viewport: FixedWidthViewport, onConfirm: () => void): void {
         drawRoundedPanel(this.node, Palette.overlay, 0);
-        const card = createRoundedPanel(this.node, 'TutorialCard', 620, 520, Palette.panel, 30, Palette.blueGray, 2);
+        const cardHeight = 520;
+        const card = createModalCard(this.node, 'TutorialCard', 620, cardHeight, Palette.blue);
+        card.setPosition(0, calculateSafeModalLayout(viewport, cardHeight).centerY);
         const eyebrow = createLabel(card, 'Eyebrow', 'FIRST DAY · 操作指南', 500, 30, {
             fontSize: 15,
             color: Palette.blue,

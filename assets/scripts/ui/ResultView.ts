@@ -1,7 +1,8 @@
 import { _decorator, Component, Label, Node } from 'cc';
+import { calculateSafeModalLayout, FixedWidthViewport } from '../core/ViewportLayout';
 import { ActionButton } from './ActionButton';
 import { createLabel, createRoundedPanel, drawRoundedPanel, Palette } from './UIFactory';
-import { createThemedButton, paintButton } from './VisualFactory';
+import { createModalCard, createThemedButton, paintButton, paintModalCard } from './VisualFactory';
 import { RESULT_VISUAL_METRICS } from './VisualMetrics';
 
 const { ccclass } = _decorator;
@@ -39,15 +40,17 @@ export class ResultView extends Component {
     private _statusBadgeLabel: Label | null = null;
     private _formal = false;
 
-    public initialize(actions: ResultActions): void {
-        drawRoundedPanel(this.node, Palette.overlay, 0);
-        this._card = createRoundedPanel(
+    public initialize(viewport: FixedWidthViewport, actions: ResultActions): void {
+        this._card = createModalCard(
             this.node,
             'ResultCard',
             680,
             RESULT_VISUAL_METRICS.cardHeight,
-            Palette.panel,
-            30,
+            Palette.blue,
+        );
+        this._card.setPosition(
+            0,
+            calculateSafeModalLayout(viewport, RESULT_VISUAL_METRICS.cardHeight).centerY,
         );
         this._statusBadge = createRoundedPanel(
             this._card,
@@ -99,13 +102,7 @@ export class ResultView extends Component {
     public setFormalTheme(formal: boolean): void {
         this._formal = formal;
         if (this._card !== null) {
-            drawRoundedPanel(
-                this._card,
-                Palette.panel,
-                30,
-                formal ? Palette.blueGray : Palette.paleBlue,
-                formal ? 2 : 0,
-            );
+            paintModalCard(this._card, formal ? Palette.blue : Palette.blueGray);
         }
         if (this._statusBadge !== null) {
             this._statusBadge.active = formal;
@@ -120,7 +117,7 @@ export class ResultView extends Component {
             return;
         }
         const statusColor = result.success ? Palette.success : Palette.warning;
-        drawRoundedPanel(this._card, Palette.panel, 30, this._formal ? Palette.blueGray : statusColor, this._formal ? 2 : 4);
+        paintModalCard(this._card, this._formal ? Palette.blue : statusColor);
         this._titleLabel.string = result.success ? '挑战成功' : '挑战失败';
         this._titleLabel.color = statusColor;
         this._summaryLabel.string = `完成任务  ${result.completedCount}/${result.totalCount}\n剩余时间  ${Math.max(0, Math.ceil(result.remainingSeconds))} 秒`;

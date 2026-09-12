@@ -1,7 +1,8 @@
 import { _decorator, Component, Label, Node } from 'cc';
 import { SettingsService } from '../core/SettingsService';
-import { createLabel, createRoundedPanel, Palette } from './UIFactory';
-import { createThemedButton } from './VisualFactory';
+import { calculateSafeModalLayout, FixedWidthViewport } from '../core/ViewportLayout';
+import { createLabel, Palette } from './UIFactory';
+import { createModalCard, createThemedButton } from './VisualFactory';
 
 const { ccclass } = _decorator;
 
@@ -10,9 +11,11 @@ export class SettingsView extends Component {
     private _settings: SettingsService | null = null;
     private _soundLabel: Label | null = null;
     private _vibrationLabel: Label | null = null;
-    public initialize(settings: SettingsService): void {
+    public initialize(viewport: FixedWidthViewport, settings: SettingsService): void {
         this._settings = settings;
-        const card = createRoundedPanel(this.node, 'SettingsCard', 610, 490, Palette.panel, 30);
+        const cardHeight = 490;
+        const card = createModalCard(this.node, 'SettingsCard', 610, cardHeight, Palette.blue);
+        card.setPosition(0, calculateSafeModalLayout(viewport, cardHeight).centerY);
         createLabel(card, 'Title', '反馈设置', 480, 66, { fontSize: 38, color: Palette.ink, bold: true }).node.setPosition(0, 165);
         const sound = createThemedButton(card, 'SoundToggle', '', () => {
             settings.setSoundEnabled(!settings.snapshot.soundEnabled);

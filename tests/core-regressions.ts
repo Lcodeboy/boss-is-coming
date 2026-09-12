@@ -1,6 +1,14 @@
 import { GameState, GameStateMachine } from '../assets/scripts/core/GameStateMachine';
 import { InspectionSequence } from '../assets/scripts/core/InspectionSequence';
 import {
+    calculateInspectionAnimationLayout,
+    calculateInspectionAnimationTimeline,
+    INSPECTION_MAX_PROGRESS_UPDATES,
+    INSPECTION_MAX_TOTAL_SECONDS,
+    FAILURE_HEAD_REACTION,
+    SUCCESS_HEAD_REACTION,
+} from '../assets/scripts/core/InspectionAnimation';
+import {
     convertScreenRectToViewport,
     readDouyinMenuButtonRect,
     reserveDouyinMenuButtonSafeArea,
@@ -11,8 +19,10 @@ import {
     calculateFixedWidthViewport,
     calculateFullBleedBackgroundLayout,
     calculateFullscreenOverlayLayout,
+    calculateGameTopNavigationLayout,
     calculateLevelSelectLayout,
     calculatePortraitGameLayout,
+    calculateSafeModalLayout,
     calculateStartPageLayout,
     calculateWorkspaceLayout,
     DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
@@ -97,6 +107,40 @@ const requiredCases: readonly (readonly boolean[])[] = [
     [true, true, true, true],
 ];
 
+for (const stepCount of [0, 1, 4, 12, 40, 500]) {
+    for (const reducedMotion of [false, true]) {
+        const timeline = calculateInspectionAnimationTimeline(stepCount, reducedMotion);
+        assert(timeline.totalSeconds >= 2.5, `${stepCount}项检查动画不得短于2.5秒`);
+        assert(timeline.totalSeconds <= INSPECTION_MAX_TOTAL_SECONDS, `${stepCount}项检查动画不得超过3.2秒`);
+        assert(timeline.outcomeAtSeconds < timeline.totalSeconds, `${stepCount}项总结果必须在结算前展示`);
+        assert(
+            timeline.progressUpdates.length <= INSPECTION_MAX_PROGRESS_UPDATES,
+            `${stepCount}项检查不得创建无限数量的进度回调`,
+        );
+        if (stepCount > 0) {
+            assert(timeline.progressUpdates[0].index >= 0, `${stepCount}项检查首个进度必须有效`);
+            assert(
+                timeline.progressUpdates[timeline.progressUpdates.length - 1].index === stepCount - 1,
+                `${stepCount}项检查最后必须快速推进到总数`,
+            );
+        }
+        for (const update of timeline.progressUpdates) {
+            assert(update.atSeconds < timeline.outcomeAtSeconds, `${stepCount}项进度必须在总结果前完成`);
+        }
+    }
+}
+
+assert(SUCCESS_HEAD_REACTION.some((frame) => frame.y <= -8 && frame.scaleY <= 0.97), '成功反应必须由头部下沉和纵向压缩表达');
+assert(SUCCESS_HEAD_REACTION.every((frame) => frame.angle === 0 && frame.x === 0), '成功点头不得使用左右摇摆作为主要动作');
+assert(FAILURE_HEAD_REACTION.some((frame) => frame.angle <= -7) && FAILURE_HEAD_REACTION.some((frame) => frame.angle >= 7), '失败反应必须包含明显正负摇头旋转');
+assert(FAILURE_HEAD_REACTION.every((frame) => frame.y === 0 && frame.scaleY === 1), '失败摇头不得使用上下点动作为主要动作');
+const successLast = SUCCESS_HEAD_REACTION[SUCCESS_HEAD_REACTION.length - 1];
+const failureLast = FAILURE_HEAD_REACTION[FAILURE_HEAD_REACTION.length - 1];
+assert(successLast.x === 0 && successLast.y === 0 && successLast.scaleY === 1 && successLast.angle === 0, '点头结束必须恢复中立');
+assert(failureLast.x === 0 && failureLast.y === 0 && failureLast.scaleY === 1 && failureLast.angle === 0, '摇头结束必须恢复中立');
+assert(SUCCESS_HEAD_REACTION.reduce((sum, frame) => sum + frame.seconds, 0) >= .55, '点头时长应达到0.55秒');
+assert(FAILURE_HEAD_REACTION.reduce((sum, frame) => sum + frame.seconds, 0) >= .55, '摇头时长应达到0.55秒');
+
 for (const taskResults of requiredCases) {
     const result = runRound(new GameStateMachine(), new InspectionSequence(), taskResults);
     assert(result.inspectedIndexes.join(',') === '0,1,2,3', '每轮必须依次检查四项');
@@ -136,12 +180,18 @@ for (let index = 0; index < ratios.length; index += 1) {
     const viewport = calculateFixedWidthViewport(ratio.width, ratio.height, 750, 1334);
     assert(Math.abs(viewport.height - ratio.expectedHeight) < 0.01, `${ratio.name} 可视高度不正确`);
     assert(viewport.height >= 1334, `${ratio.name} 背景必须覆盖安全设计区`);
-    const layout = calculatePortraitGameLayout(viewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
+    const navigation = calculateGameTopNavigationLayout(viewport, null);
+    const layout = calculatePortraitGameLayout(
+        viewport,
+        DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
+        navigation.y,
+    );
     const workspace = calculateWorkspaceLayout(layout.workspaceHeight);
     const startLayout = calculateStartPageLayout(viewport);
     const selectLayout = calculateLevelSelectLayout(viewport, 5);
     const overlayLayout = calculateFullscreenOverlayLayout(viewport);
     const backgroundLayout = calculateFullBleedBackgroundLayout(viewport);
+    const inspectionLayout = calculateInspectionAnimationLayout(viewport);
     const coverLayout = calculateCoverLayout(backgroundLayout.width, backgroundLayout.height, 750, 1334);
     assert(
         backgroundLayout.x === 0
@@ -159,7 +209,50 @@ for (let index = 0; index < ratios.length; index += 1) {
         Math.abs(coverLayout.renderedWidth / coverLayout.renderedHeight - 750 / 1334) < 0.0001,
         `${ratio.name} cover 背景不得非等比拉伸`,
     );
-    assert(layout.headerY < viewport.safeTop, `${ratio.name} 标题必须位于顶部安全区内`);
+    const inspectionActorRect = centeredRect(
+        inspectionLayout.actorX,
+        inspectionLayout.actorY,
+        inspectionLayout.actorWidth,
+        inspectionLayout.actorHeight,
+    );
+    assert(inspectionActorRect.left >= -viewport.width / 2, `${ratio.name} Boss 左侧不得溢出屏幕`);
+    assert(inspectionActorRect.right <= viewport.width / 2, `${ratio.name} Boss 右侧不得溢出屏幕`);
+    assert(inspectionActorRect.top <= viewport.safeTop, `${ratio.name} Boss 头顶不得进入顶部安全区`);
+    assert(inspectionActorRect.bottom >= viewport.safeBottom, `${ratio.name} Boss 双脚不得越过底部安全区`);
+    assert(
+        Math.abs(inspectionLayout.actorWidth / inspectionLayout.actorHeight - 1024 / 1536) < 0.0001,
+        `${ratio.name} Boss 必须按原图比例等比缩放`,
+    );
+    assert(
+        inspectionLayout.actorEntryX - inspectionLayout.actorWidth / 2 >= viewport.width / 2,
+        `${ratio.name} Boss 进场起点必须位于屏幕右侧之外`,
+    );
+    assert(inspectionLayout.titleY <= viewport.safeTop, `${ratio.name} 检查标题不得进入顶部安全区`);
+    assert(inspectionLayout.feedbackY - 46 >= viewport.safeBottom, `${ratio.name} 检查结果不得越过底部安全区`);
+    const backButtonRect = centeredRect(
+        navigation.backButtonX,
+        navigation.y,
+        navigation.backButtonSize,
+        navigation.backButtonSize,
+    );
+    const titleRect = centeredRect(
+        navigation.titleX,
+        navigation.y,
+        navigation.titleWidth,
+        navigation.titleHeight,
+    );
+    assert(backButtonRect.left >= -viewport.width / 2, `${ratio.name} 返回按钮不得越过左侧安全边界`);
+    assert(backButtonRect.top <= viewport.safeTop, `${ratio.name} 返回按钮不得越过Web顶部安全边界`);
+    assert(
+        navigation.backButtonSize >= 72 && navigation.backButtonSize <= 80,
+        `${ratio.name} 返回按钮触摸区必须保持72～80设计像素`,
+    );
+    assert(!intersects(backButtonRect, titleRect), `${ratio.name} 标题不得与返回按钮重叠`);
+    assert(
+        titleRect.left - backButtonRect.right >= 16 && titleRect.left - backButtonRect.right <= 20,
+        `${ratio.name} 返回箭头与标题间距必须保持16～20设计像素`,
+    );
+    assert(layout.headerY === navigation.y, `${ratio.name} 标题与返回按钮必须处于同一行`);
     assert(layout.bossY < layout.headerY, `${ratio.name} 老板进度必须位于标题下方`);
     assert(layout.taskY < layout.bossY, `${ratio.name} 任务清单必须位于老板进度下方`);
     assert(layout.workspaceHeight >= 690 && layout.workspaceHeight <= 1120, `${ratio.name} 工位高度越界`);
@@ -169,7 +262,22 @@ for (let index = 0; index < ratios.length; index += 1) {
     assert(startLayout.elevatorTop < startLayout.subtitleY - 20, `${ratio.name} 电梯不得遮挡副标题`);
     assert(startLayout.elevatorBottom > startLayout.startButtonY + 52, `${ratio.name} 电梯不得遮挡开始按钮`);
 
+    const bossBottom = layout.bossY - DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.bossHeight / 2;
+    const bossTop = layout.bossY + DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.bossHeight / 2;
+    const navigationBottom = navigation.y - navigation.height / 2;
+    const taskTop = layout.taskY + DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.taskHeight / 2;
     const taskBottom = layout.taskY - DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.taskHeight / 2;
+    const workspaceTop = layout.workspaceY + layout.workspaceHeight / 2;
+    const workspaceBottom = layout.workspaceY - layout.workspaceHeight / 2;
+    const helperTop = layout.helperY + DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.helperHeight / 2;
+    assert(
+        navigationBottom - bossTop >= 16 && navigationBottom - bossTop <= 20,
+        `${ratio.name} 老板进度与顶部导航应保持16～20设计像素净间距`,
+    );
+    assert(bossBottom - taskTop >= 12, `${ratio.name} 老板进度与任务清单不得重叠`);
+    assert(taskBottom - workspaceTop >= 12, `${ratio.name} 任务清单与办公室场景不得重叠`);
+    assert(workspaceBottom - helperTop >= 12, `${ratio.name} 工位与操作提示不得重叠`);
+
     const workspaceTitleTop = layout.workspaceY + workspace.titleY + WORKSPACE_TITLE_HEIGHT / 2;
     const taskToTitleGap = taskBottom - workspaceTitleTop;
     assert(
@@ -235,6 +343,11 @@ for (let index = 0; index < ratios.length; index += 1) {
         && overlayLayout.height === viewport.height,
         `${ratio.name} 教学、检查和结算遮罩必须完整覆盖屏幕`,
     );
+    for (const modalHeight of [760, 520, 490, 470, RESULT_VISUAL_METRICS.cardHeight, 310]) {
+        const modal = calculateSafeModalLayout(viewport, modalHeight);
+        assert(modal.top <= viewport.safeTop, `${ratio.name} 高${modalHeight}弹窗不得超出顶部安全区`);
+        assert(modal.bottom >= viewport.safeBottom, `${ratio.name} 高${modalHeight}弹窗不得超出底部安全区`);
+    }
     const occupiedListHeight = selectLayout.entryHeight * 5 + selectLayout.entryGap * 4;
     assert(
         Math.abs(occupiedListHeight - (selectLayout.listTop - selectLayout.listBottom)) < 0.01,
@@ -260,7 +373,7 @@ const simulatedMenuRect = readDouyinMenuButtonRect({
 });
 assert(simulatedMenuRect !== null, '应通过能力检测读取抖音胶囊矩形');
 
-for (const ratio of ratios.filter((entry) => entry.name === '393x852' || entry.name === '393x873')) {
+for (const ratio of ratios) {
     const webViewport = calculateFixedWidthViewport(ratio.width, ratio.height, 750, 1334);
     const unchangedWebViewport = reserveDouyinMenuButtonSafeArea(
         webViewport,
@@ -270,8 +383,20 @@ for (const ratio of ratios.filter((entry) => entry.name === '393x852' || entry.n
         null,
     );
     assert(unchangedWebViewport === webViewport, `${ratio.name} Web 布局必须保持原有效果`);
-    if (simulatedMenuRect === null) { continue; }
-    const menuRect = convertScreenRectToViewport(simulatedMenuRect, ratio.width, ratio.height, 750);
+    const screenScale = ratio.width / 393;
+    const ratioMenuRect = readDouyinMenuButtonRect({
+        tt: {
+            getMenuButtonBoundingClientRect: () => ({
+                left: ratio.width - 123 * screenScale,
+                top: 14 * screenScale,
+                right: ratio.width - 12 * screenScale,
+                bottom: 53 * screenScale,
+            }),
+        },
+    });
+    assert(ratioMenuRect !== null, `${ratio.name} 应生成模拟抖音胶囊矩形`);
+    if (ratioMenuRect === null) { continue; }
+    const menuRect = convertScreenRectToViewport(ratioMenuRect, ratio.width, ratio.height, 750);
     assert(menuRect !== null, `${ratio.name} 胶囊矩形应能转换到设计坐标`);
     if (menuRect === null) { continue; }
     const douyinViewport = reserveDouyinMenuButtonSafeArea(
@@ -279,17 +404,38 @@ for (const ratio of ratios.filter((entry) => entry.name === '393x852' || entry.n
         ratio.width,
         ratio.height,
         750,
-        simulatedMenuRect,
+        ratioMenuRect,
     );
-    const gameLayout = calculatePortraitGameLayout(douyinViewport, DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS);
+    const navigation = calculateGameTopNavigationLayout(douyinViewport, menuRect);
+    const gameLayout = calculatePortraitGameLayout(
+        douyinViewport,
+        DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
+        navigation.y,
+    );
     const startLayout = calculateStartPageLayout(douyinViewport);
     const selectLayout = calculateLevelSelectLayout(douyinViewport, 5);
     const levelSelectTitleY = selectLayout.panelY + selectLayout.titleY;
     const protectedNodes = [
         { name: '首页标题', rect: centeredRect(0, startLayout.titleY, 610, 96) },
         { name: '设置按钮', rect: centeredRect(284, douyinViewport.safeTop - 50, 112, 80) },
-        { name: '游戏页标题', rect: centeredRect(-175, gameLayout.headerY, 320, 54) },
-        { name: '退出按钮', rect: centeredRect(284, gameLayout.headerY, 112, 80) },
+        {
+            name: '游戏页返回按钮',
+            rect: centeredRect(
+                navigation.backButtonX,
+                navigation.y,
+                navigation.backButtonSize,
+                navigation.backButtonSize,
+            ),
+        },
+        {
+            name: '游戏页标题',
+            rect: centeredRect(
+                navigation.titleX,
+                navigation.y,
+                navigation.titleWidth,
+                navigation.titleHeight,
+            ),
+        },
         { name: '选关页标题', rect: centeredRect(0, levelSelectTitleY, 560, 64) },
     ];
     for (let index = 0; index < 5; index += 1) {
@@ -308,6 +454,42 @@ for (const ratio of ratios.filter((entry) => entry.name === '393x852' || entry.n
     }
     for (const node of protectedNodes) {
         assert(!intersects(node.rect, menuRect), `${ratio.name} ${node.name}不得与抖音胶囊相交`);
+    }
+    const gameBackRect = protectedNodes[2].rect;
+    const gameTitleRect = protectedNodes[3].rect;
+    const bossRect = centeredRect(
+        0,
+        gameLayout.bossY,
+        680,
+        DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.bossHeight,
+    );
+    assert(!intersects(gameBackRect, gameTitleRect), `${ratio.name} 游戏页标题不得与返回按钮重叠`);
+    assert(gameBackRect.left >= -douyinViewport.width / 2, `${ratio.name} 返回按钮不得越过左侧安全边界`);
+    assert(gameBackRect.top <= douyinViewport.height / 2, `${ratio.name} 返回按钮不得越过屏幕顶部`);
+    assert(gameBackRect.bottom >= douyinViewport.safeBottom, `${ratio.name} 返回按钮不得越过底部安全边界`);
+    assert(
+        Math.abs(navigation.y - (menuRect.top + menuRect.bottom) / 2) < 0.01,
+        `${ratio.name} 返回按钮与标题必须和抖音胶囊垂直居中`,
+    );
+    assert(
+        navigation.contentRight <= menuRect.left - 24 + 0.01,
+        `${ratio.name} 顶部导航与胶囊左边缘至少保留24设计像素`,
+    );
+    assert(!intersects(bossRect, gameBackRect), `${ratio.name} 老板进度不得与返回按钮重叠`);
+    assert(!intersects(bossRect, gameTitleRect), `${ratio.name} 老板进度不得与标题重叠`);
+    assert(!intersects(bossRect, menuRect), `${ratio.name} 老板进度不得与抖音胶囊重叠`);
+    const navigationAndCapsuleBottom = Math.min(gameBackRect.bottom, menuRect.bottom);
+    assert(
+        navigationAndCapsuleBottom - bossRect.top >= 16
+        && navigationAndCapsuleBottom - bossRect.top <= 20,
+        `${ratio.name} 老板进度与顶部导航及胶囊应保留16～20设计像素`,
+    );
+    for (const modalHeight of [760, 520, 490, 470, RESULT_VISUAL_METRICS.cardHeight, 310]) {
+        const modal = calculateSafeModalLayout(douyinViewport, modalHeight);
+        const modalRect = centeredRect(0, modal.centerY, 680, modalHeight);
+        assert(!intersects(modalRect, menuRect), `${ratio.name} 高${modalHeight}弹窗不得与抖音胶囊相交`);
+        assert(modal.top <= douyinViewport.safeTop, `${ratio.name} 弹窗顶部必须位于抖音安全区内`);
+        assert(modal.bottom >= douyinViewport.safeBottom, `${ratio.name} 弹窗底部必须位于抖音安全区内`);
     }
     const overlayLayout = calculateFullscreenOverlayLayout(douyinViewport);
     assert(
@@ -346,4 +528,4 @@ const notchedViewport = calculateFixedWidthViewport(
 assert(notchedViewport.bottomSafeInset >= 28, '应换算设备底部安全区');
 assert(notchedViewport.topSafeInset > 60, '应换算设备顶部安全区');
 
-console.log('PASS: inspection failure paths, single settlement, three retries, fixed-width portrait ratios');
+console.log('PASS: gameplay flow, full-bleed office layout, modal safety, capsule regressions');

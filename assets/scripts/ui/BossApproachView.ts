@@ -41,10 +41,10 @@ export class BossApproachView extends Component {
 
         drawRoundedPanel(
             this.node,
-            formal ? Palette.backgroundDeep : Palette.panel,
+            formal ? Palette.hudPanel : Palette.panel,
             22,
-            formal ? Palette.elevatorMetal : Palette.paleBlue,
-            formal ? 2 : 3,
+            formal ? Palette.hudStroke : Palette.paleBlue,
+            formal ? 1.5 : 3,
         );
         if (formal) {
             const accentNode = createUiNode(this.node, 'WarningAccent', 652, 16);

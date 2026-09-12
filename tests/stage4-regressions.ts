@@ -165,12 +165,15 @@ function lifecycleRegression(): void {
     assert(!service.snapshot.needsContinue && !service.snapshot.paused, '教学保留READY，不显示整理遮罩、不启动计时');
     timer.update(100);
     assert(elapsed === 0, '教学时间不启动倒计时');
-    for (const nonPlaying of [GameState.HOME, GameState.LEVEL_SELECT, GameState.SUCCESS, GameState.FAILURE, GameState.INSPECTING]) {
+    for (const nonPlaying of [GameState.HOME, GameState.LEVEL_SELECT, GameState.SUCCESS, GameState.FAILURE]) {
         state = nonPlaying; provider.emit(true);
         assert(service.snapshot.paused, `${state}后台暂停展示`);
         provider.emit(false);
         assert(!service.snapshot.paused && !service.snapshot.needsContinue, `${state}前台保持原页面，不出现继续遮罩`);
     }
+    state = GameState.INSPECTING; service.reset(); provider.emit(true); provider.emit(false);
+    assert(service.snapshot.paused && service.snapshot.needsContinue, '检查中切后台应等待玩家继续');
+    assert(service.continuePlaying(), '检查中返回前台应复用继续整理机制');
     state = GameState.PREPARED; timer.startTimer(24, () => {}, () => { elapsed++; }); timer.finishQuickly(1.35);
     provider.emit(true); timer.update(20); provider.emit(false); timer.update(20);
     assert(timer.remainingSeconds === 24, '快速收尾期间暂停保持剩余时间');
@@ -213,6 +216,7 @@ function threeRounds(): void {
         if (!lifecycle.snapshot.paused) { inspection.advance(); inspected++; }
         assert(inspected === 0, '后台不推进检查项');
         platform.emit(false);
+        assert(lifecycle.snapshot.needsContinue && lifecycle.continuePlaying(), '检查动画返回前台后由继续整理恢复');
         for (let index = 0; index < 4; index++) { inspection.advance(); inspected++; }
         machine.transition(success ? GameState.SUCCESS : GameState.FAILURE);
         director.result(success); director.result(success); settlements++;

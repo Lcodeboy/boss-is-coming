@@ -2,6 +2,9 @@ import { _decorator, Color, Component, Graphics, Node, Sprite, SpriteFrame } fro
 import {
     calculateCoverLayout,
     calculateFullBleedBackgroundLayout,
+    calculatePortraitGameLayout,
+    calculateWorkspaceLayout,
+    DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
     FixedWidthViewport,
 } from '../core/ViewportLayout';
 import { createUiNode, requireTransform } from './UIFactory';
@@ -22,12 +25,18 @@ export class FullBleedBackground extends Component {
 
     private _viewport: FixedWidthViewport | null = null;
     private _kind: FullBleedBackgroundKind = 'game';
+    private _gameNavigationY: number | undefined;
     private _artworkNode: Node | null = null;
     private _artworkSprite: Sprite | null = null;
 
-    public initialize(viewport: FixedWidthViewport, kind: FullBleedBackgroundKind): void {
+    public initialize(
+        viewport: FixedWidthViewport,
+        kind: FullBleedBackgroundKind,
+        gameNavigationY?: number,
+    ): void {
         this._viewport = viewport;
         this._kind = kind;
+        this._gameNavigationY = gameNavigationY;
         const layout = calculateFullBleedBackgroundLayout(viewport);
         requireTransform(this.node).setContentSize(layout.width, layout.height);
         this.node.setPosition(layout.x, layout.y);
@@ -91,10 +100,64 @@ export class FullBleedBackground extends Component {
         } else if (kind === 'level-select') {
             this.paintLevelSelectFallback(graphics, viewport, halfWidth, halfHeight);
         } else {
-            graphics.fillColor = Palette.background;
-            graphics.rect(-halfWidth, -halfHeight, viewport.width, viewport.height);
-            graphics.fill();
+            this.paintGameFallback(graphics, viewport, halfWidth, halfHeight);
         }
+    }
+
+    private paintGameFallback(
+        graphics: Graphics,
+        viewport: FixedWidthViewport,
+        halfWidth: number,
+        halfHeight: number,
+    ): void {
+        const gameLayout = calculatePortraitGameLayout(
+            viewport,
+            DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS,
+            this._gameNavigationY,
+        );
+        const workspaceLayout = calculateWorkspaceLayout(gameLayout.workspaceHeight);
+        const workspaceTop = gameLayout.workspaceY + gameLayout.workspaceHeight / 2;
+        const floorTop = gameLayout.workspaceY
+            + workspaceLayout.floorY
+            + workspaceLayout.floorHeight / 2;
+
+        graphics.fillColor = Palette.backgroundDeep;
+        graphics.rect(-halfWidth, -halfHeight, viewport.width, viewport.height);
+        graphics.fill();
+
+        // HUD 以下是连续的办公室墙面，不再依赖 Workspace 的浅色外框来承载场景。
+        graphics.fillColor = new Color(72, 91, 100, 255);
+        graphics.rect(-halfWidth, -halfHeight, viewport.width, workspaceTop + halfHeight);
+        graphics.fill();
+        graphics.fillColor = new Color(255, 255, 255, 10);
+        for (let column = -3; column <= 3; column += 1) {
+            graphics.rect(column * 126 - 2, floorTop, 4, Math.max(0, workspaceTop - floorTop));
+        }
+        graphics.fill();
+
+        // 地面直接延伸到屏幕两侧，使用透视线与墙面自然衔接。
+        graphics.fillColor = new Color(54, 72, 81, 255);
+        graphics.rect(-halfWidth, -halfHeight, viewport.width, floorTop + halfHeight);
+        graphics.fill();
+        graphics.fillColor = new Color(121, 143, 150, 150);
+        graphics.rect(-halfWidth, floorTop - 5, viewport.width, 10);
+        graphics.fill();
+        this.paintPerspectiveFloor(graphics, viewport, floorTop, new Color(114, 139, 147, 66));
+
+        // 两侧柜体轮廓只作为远景装饰，不创建任何触摸节点。
+        graphics.fillColor = new Color(31, 47, 57, 92);
+        graphics.roundRect(-halfWidth - 28, floorTop + 30, 118, 260, 12);
+        graphics.roundRect(halfWidth - 90, floorTop + 12, 118, 278, 12);
+        graphics.fill();
+        graphics.lineWidth = 3;
+        graphics.strokeColor = new Color(143, 164, 169, 55);
+        for (const x of [-halfWidth + 31, halfWidth - 31]) {
+            graphics.moveTo(x - 42, floorTop + 105);
+            graphics.lineTo(x + 42, floorTop + 105);
+            graphics.moveTo(x - 42, floorTop + 190);
+            graphics.lineTo(x + 42, floorTop + 190);
+        }
+        graphics.stroke();
     }
 
     private paintHomeFallback(

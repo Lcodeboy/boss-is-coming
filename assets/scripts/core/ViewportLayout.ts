@@ -27,12 +27,31 @@ export interface PortraitGameLayoutOptions {
     readonly topPadding: number;
     readonly bottomPadding: number;
     readonly headerHeight: number;
+    readonly navigationGap: number;
     readonly bossHeight: number;
     readonly taskHeight: number;
     readonly helperHeight: number;
     readonly sectionGap: number;
     readonly workspaceMinHeight: number;
     readonly workspaceMaxHeight: number;
+}
+
+export interface ViewportObstacleRect {
+    readonly left: number;
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
+}
+
+export interface GameTopNavigationLayout {
+    readonly y: number;
+    readonly height: number;
+    readonly backButtonX: number;
+    readonly backButtonSize: number;
+    readonly titleX: number;
+    readonly titleWidth: number;
+    readonly titleHeight: number;
+    readonly contentRight: number;
 }
 
 export interface LevelSelectLayout {
@@ -85,6 +104,12 @@ export interface FullBleedBackgroundLayout {
     readonly height: number;
 }
 
+export interface SafeModalLayout {
+    readonly centerY: number;
+    readonly top: number;
+    readonly bottom: number;
+}
+
 export interface CoverLayout {
     readonly scale: number;
     readonly renderedWidth: number;
@@ -100,7 +125,8 @@ export const WORKSPACE_DESK_HEIGHT = 405;
 export const DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS: PortraitGameLayoutOptions = {
     topPadding: 18,
     bottomPadding: 20,
-    headerHeight: 54,
+    headerHeight: 80,
+    navigationGap: 18,
     bossHeight: 190,
     taskHeight: 164,
     helperHeight: 38,
@@ -130,11 +156,12 @@ export function calculateFixedWidthViewport(
 export function calculatePortraitGameLayout(
     viewport: FixedWidthViewport,
     options: PortraitGameLayoutOptions,
+    navigationY?: number,
 ): PortraitGameLayout {
-    const headerY = viewport.safeTop - options.topPadding - options.headerHeight / 2;
+    const headerY = navigationY ?? viewport.safeTop - options.topPadding - options.headerHeight / 2;
     const bossY = headerY
         - options.headerHeight / 2
-        - options.sectionGap
+        - options.navigationGap
         - options.bossHeight / 2;
     const taskY = bossY
         - options.bossHeight / 2
@@ -158,6 +185,50 @@ export function calculatePortraitGameLayout(
         workspaceY: workspaceTop - workspaceHeight / 2,
         workspaceHeight,
         helperY,
+    };
+}
+
+/**
+ * 游戏进行页顶部导航优先与抖音胶囊同排并使用其左侧空间；没有胶囊能力时，
+ * 回退到系统安全区内。这里只改变页面级节点，不参与工位内部坐标计算。
+ */
+export function calculateGameTopNavigationLayout(
+    viewport: FixedWidthViewport,
+    menuRect: ViewportObstacleRect | null,
+): GameTopNavigationLayout {
+    const backButtonSize = 80;
+    const horizontalPadding = 24;
+    const capsuleGap = 24;
+    const titleGap = 18;
+    const titleHeight = 54;
+    const visibleTop = viewport.height / 2;
+    const minimumY = viewport.safeBottom + backButtonSize / 2;
+    const fallbackY = viewport.safeTop
+        - DEFAULT_PORTRAIT_GAME_LAYOUT_OPTIONS.topPadding
+        - backButtonSize / 2;
+    const y = menuRect === null
+        ? fallbackY
+        : clamp(
+            (menuRect.top + menuRect.bottom) / 2,
+            minimumY,
+            visibleTop - backButtonSize / 2,
+        );
+    const left = -viewport.width / 2 + horizontalPadding;
+    const backButtonX = left + backButtonSize / 2;
+    const titleLeft = backButtonX + backButtonSize / 2 + titleGap;
+    const contentRight = menuRect === null
+        ? viewport.width / 2 - horizontalPadding
+        : Math.min(viewport.width / 2 - horizontalPadding, menuRect.left - capsuleGap);
+    const titleWidth = Math.max(0, contentRight - titleLeft);
+    return {
+        y,
+        height: backButtonSize,
+        backButtonX,
+        backButtonSize,
+        titleX: titleLeft + titleWidth / 2,
+        titleWidth,
+        titleHeight,
+        contentRight,
     };
 }
 
@@ -258,6 +329,30 @@ export function calculateFullscreenOverlayLayout(viewport: FixedWidthViewport): 
         y: 0,
         width: viewport.width,
         height: viewport.height,
+    };
+}
+
+/**
+ * 弹窗优先保持视觉居中；仅当居中位置会越过安全区（包括抖音胶囊预留区）时纵向挪动。
+ * 该计算只影响弹窗卡片，不改变覆盖整屏的遮罩节点。
+ */
+export function calculateSafeModalLayout(
+    viewport: FixedWidthViewport,
+    contentHeight: number,
+    margin = 24,
+): SafeModalLayout {
+    const safeContentHeight = Math.max(0, contentHeight);
+    const safeMargin = Math.max(0, margin);
+    const halfHeight = safeContentHeight / 2;
+    const minimumCenterY = viewport.safeBottom + safeMargin + halfHeight;
+    const maximumCenterY = viewport.safeTop - safeMargin - halfHeight;
+    const centerY = minimumCenterY <= maximumCenterY
+        ? clamp(0, minimumCenterY, maximumCenterY)
+        : (viewport.safeTop + viewport.safeBottom) / 2;
+    return {
+        centerY,
+        top: centerY + halfHeight,
+        bottom: centerY - halfHeight,
     };
 }
 

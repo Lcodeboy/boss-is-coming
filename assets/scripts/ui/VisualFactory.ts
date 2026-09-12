@@ -16,6 +16,67 @@ export interface ThemedButton {
     readonly button: ActionButton;
 }
 
+/** 游戏进行页使用的紧凑返回按钮；80设计像素触摸区内绘制30像素箭头。 */
+export function createBackArrowButton(
+    parent: Node,
+    name: string,
+    action: ButtonAction,
+    size = 80,
+): Node {
+    const node = createUiNode(parent, name, size, size);
+    const graphics = node.addComponent(Graphics);
+    graphics.fillColor = new Color(112, 135, 143, 72);
+    graphics.circle(0, 0, size / 2 - 2);
+    graphics.fill();
+    graphics.lineWidth = 5;
+    graphics.strokeColor = Palette.white;
+    graphics.moveTo(8, 15);
+    graphics.lineTo(-8, 0);
+    graphics.lineTo(8, -15);
+    graphics.moveTo(-7, 0);
+    graphics.lineTo(15, 0);
+    graphics.stroke();
+    const button = node.addComponent(ActionButton);
+    button.configure(action);
+    return node;
+}
+
+/** 创建统一弹窗卡片；阴影、圆角、细描边和顶部层级标识保持一致。 */
+export function createModalCard(
+    parent: Node,
+    name: string,
+    width: number,
+    height: number,
+    accent: Color = Palette.blueGray,
+): Node {
+    const node = createUiNode(parent, name, width, height);
+    node.addComponent(Graphics);
+    paintModalCard(node, accent);
+    return node;
+}
+
+export function paintModalCard(node: Node, accent: Color = Palette.blueGray): void {
+    const transform = requireTransform(node);
+    const graphics = node.getComponent(Graphics) ?? node.addComponent(Graphics);
+    const width = transform.contentSize.width;
+    const height = transform.contentSize.height;
+    const radius = VisualTheme.radius.modal;
+    graphics.clear();
+    graphics.fillColor = new Color(Palette.shadow.r, Palette.shadow.g, Palette.shadow.b, 132);
+    graphics.roundRect(-width / 2 + 8, -height / 2 - 12, width - 16, height, radius);
+    graphics.fill();
+    graphics.fillColor = Palette.panel;
+    graphics.roundRect(-width / 2, -height / 2, width, height, radius);
+    graphics.fill();
+    graphics.lineWidth = 2;
+    graphics.strokeColor = new Color(accent.r, accent.g, accent.b, 178);
+    graphics.roundRect(-width / 2 + 1, -height / 2 + 1, width - 2, height - 2, radius);
+    graphics.stroke();
+    graphics.fillColor = new Color(accent.r, accent.g, accent.b, 220);
+    graphics.roundRect(-width / 2 + 28, height / 2 - 13, width - 56, 8, 4);
+    graphics.fill();
+}
+
 /** 创建统一按钮；阴影直接绘制在按钮节点内，缩放反馈不会与主体脱节。 */
 export function createThemedButton(
     parent: Node,
@@ -151,21 +212,40 @@ export function paintFormalOfficeFloor(node: Node): void {
     const height = transform.contentSize.height;
     const graphics = node.getComponent(Graphics) ?? node.addComponent(Graphics);
     graphics.clear();
-    graphics.fillColor = Palette.officeFloor;
-    graphics.roundRect(-width / 2, -height / 2, width, height, VisualTheme.radius.large);
+    graphics.fillColor = Palette.sceneFloor;
+    graphics.rect(-width / 2, -height / 2, width, height);
     graphics.fill();
     graphics.lineWidth = 2;
-    graphics.strokeColor = Palette.officeFloorGrid;
+    graphics.strokeColor = Palette.sceneFloorGrid;
     for (let row = 1; row < 6; row += 1) {
         const y = -height / 2 + height * row / 6;
-        graphics.moveTo(-width / 2 + 16, y);
-        graphics.lineTo(width / 2 - 16, y);
+        graphics.moveTo(-width / 2, y);
+        graphics.lineTo(width / 2, y);
     }
     for (let column = -2; column <= 2; column += 1) {
         const x = column * width / 6;
-        graphics.moveTo(x, -height / 2 + 16);
-        graphics.lineTo(x, height / 2 - 16);
+        graphics.moveTo(x, -height / 2);
+        graphics.lineTo(x, height / 2);
     }
+    graphics.stroke();
+}
+
+/** 收纳区是铺在办公室地面上的低对比地毯，不再表现为独立的大卡片。 */
+export function paintStorageArea(node: Node): void {
+    const transform = requireTransform(node);
+    const width = transform.contentSize.width;
+    const height = transform.contentSize.height;
+    const graphics = node.getComponent(Graphics) ?? node.addComponent(Graphics);
+    graphics.clear();
+    // 只提供地面分区和物体落地阴影，避免再次形成包围收纳物件的大面板。
+    graphics.fillColor = new Color(16, 29, 37, 68);
+    graphics.ellipse(-238, -height / 2 + 30, 118, 22);
+    graphics.ellipse(245, -height / 2 + 30, 118, 22);
+    graphics.fill();
+    graphics.lineWidth = 2;
+    graphics.strokeColor = new Color(151, 173, 179, 62);
+    graphics.moveTo(-width / 2 + 38, height / 2 - 18);
+    graphics.lineTo(width / 2 - 38, height / 2 - 18);
     graphics.stroke();
 }
 
@@ -191,7 +271,7 @@ export function paintWorkspaceDepth(node: Node, layout: WorkspaceLayout): void {
     const rugInset = Math.min(24, availableDepth * 0.12);
     const rugBottom = storageTop + rugInset;
     const rugHeight = Math.max(24, availableDepth - rugInset * 2);
-    graphics.fillColor = new Color(92, 119, 130, 72);
+    graphics.fillColor = Palette.sceneRug;
     graphics.roundRect(-224, rugBottom, 448, rugHeight, 28);
     graphics.fill();
     graphics.lineWidth = 3;
