@@ -3,10 +3,13 @@ import { InspectionSequence } from '../assets/scripts/core/InspectionSequence';
 import {
     calculateInspectionAnimationLayout,
     calculateInspectionAnimationTimeline,
+    BOSS_MAGNIFIER_POP_SECONDS,
     FAILURE_BODY_REACTION,
+    INSPECTION_FINAL_POSE_SECONDS,
     INSPECTION_MAX_PROGRESS_UPDATES,
     INSPECTION_MAX_TOTAL_SECONDS,
     INSPECTION_NORMAL_OUTCOME_SECONDS,
+    INSPECTION_NORMAL_POSE_UPDATES,
     INSPECTION_NORMAL_TOTAL_SECONDS,
     INSPECTION_REDUCED_TOTAL_SECONDS,
     FAILURE_HEAD_REACTION,
@@ -128,6 +131,15 @@ for (const stepCount of [0, 1, 4, 12, 40, 500]) {
         );
         assert(timeline.outcomeAtSeconds < timeline.totalSeconds, `${stepCount}项总结果必须在结算前展示`);
         assert(
+            timeline.finalPoseAtSeconds === (reducedMotion ? timeline.outcomeAtSeconds : INSPECTION_FINAL_POSE_SECONDS),
+            reducedMotion ? '减少动态必须在结果出现时直接显示最终姿势' : '最终通过/失败姿势必须在2.52秒切换',
+        );
+        assert(timeline.finalPoseAtSeconds < timeline.totalSeconds, '最终姿势必须在2.9秒结算前展示');
+        assert(
+            JSON.stringify(timeline.poseUpdates) === JSON.stringify(reducedMotion ? [] : INSPECTION_NORMAL_POSE_UPDATES),
+            reducedMotion ? '减少动态必须跳过放大镜等快速姿势切换' : '正常检查姿势顺序和时间点必须固定',
+        );
+        assert(
             timeline.progressUpdates.length <= INSPECTION_MAX_PROGRESS_UPDATES,
             `${stepCount}项检查不得创建无限数量的进度回调`,
         );
@@ -144,6 +156,23 @@ for (const stepCount of [0, 1, 4, 12, 40, 500]) {
     }
 }
 
+assert(
+    JSON.stringify(INSPECTION_NORMAL_POSE_UPDATES) === JSON.stringify([
+        { pose: 'check', atSeconds: 0.58 },
+        { pose: 'magnifier', atSeconds: 1.05 },
+        { pose: 'check', atSeconds: 1.42 },
+        { pose: 'neutral', atSeconds: 1.82 },
+    ]),
+    '正常动画必须严格按 neutral→check→magnifier→check→neutral reaction 切换',
+);
+assert(1.42 - 1.05 <= 0.5, 'magnifier显示时间不得超过0.5秒');
+assert(BOSS_MAGNIFIER_POP_SECONDS <= 0.16, 'magnifier弹出动画不得超过0.16秒');
+const fourStepTimeline = calculateInspectionAnimationTimeline(4, false);
+assert(
+    fourStepTimeline.progressUpdates.some((update) => update.atSeconds >= 1.05 && update.atSeconds <= 1.42),
+    'magnifier关键帧期间检查进度必须继续刷新',
+);
+
 const successNods = SUCCESS_HEAD_REACTION.filter((frame) => frame.y < 0);
 assert(successNods.length === 2, '成功反应必须包含一大一小两次点头');
 assert(successNods[0].y >= -22 && successNods[0].y <= -18, '首次点头必须下沉18～22设计像素');
@@ -153,6 +182,16 @@ assert(successNods[1].scaleY === 0.96, '第二次点头必须保留0.96纵向压
 assert(SUCCESS_HEAD_REACTION[1].y >= 3 && SUCCESS_HEAD_REACTION[1].y <= 5, '首次点头后必须回弹到原位上方3～5设计像素');
 assert(SUCCESS_HEAD_REACTION[3].y === 0 && SUCCESS_HEAD_REACTION[3].scaleY === 1, '第二次点头后必须再次回弹到中立姿态');
 assert(SUCCESS_HEAD_REACTION.every((frame) => frame.angle === 0 && frame.x === 0), '成功点头不得使用左右摇摆作为主要动作');
+assert(
+    JSON.stringify(SUCCESS_HEAD_REACTION) === JSON.stringify([
+        { seconds: 0.12, x: 0, y: -20, scaleY: 0.94, angle: 0, easing: 'quadIn' },
+        { seconds: 0.12, x: 0, y: 4, scaleY: 1, angle: 0, easing: 'backOut' },
+        { seconds: 0.12, x: 0, y: -11, scaleY: 0.96, angle: 0, easing: 'quadIn' },
+        { seconds: 0.19, x: 0, y: 0, scaleY: 1, angle: 0, easing: 'backOut' },
+        { seconds: 0.05, x: 0, y: 0, scaleY: 1, angle: 0, easing: 'quadOut' },
+    ]),
+    '成功点头已验收的位移、缩放、时长和缓动不得改变',
+);
 assert(
     FAILURE_HEAD_REACTION.slice(0, 5).map((frame) => frame.angle).join(',') === '-7,7,-5,5,0',
     '失败反应必须按-7°、+7°、-5°、+5°、0°依次摇头',

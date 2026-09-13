@@ -149,7 +149,13 @@ export class InspectionView extends Component {
         for (const update of timeline.progressUpdates) {
             this.scheduleOnce(() => this.showProgress(update.index), update.atSeconds);
         }
+        for (const update of timeline.poseUpdates) {
+            this.scheduleOnce(() => this._bossActor?.showPose(update.pose), update.atSeconds);
+        }
         this.scheduleOnce(this.showOutcome, timeline.outcomeAtSeconds);
+        if (!this._reducedMotion) {
+            this.scheduleOnce(this.showFinalPose, timeline.finalPoseAtSeconds);
+        }
         this.scheduleOnce(this.finishInspection, timeline.totalSeconds);
     }
 
@@ -236,6 +242,13 @@ export class InspectionView extends Component {
             .to(0.14, { scale: new Vec3(1.035, 1.035, 1) }, { easing: 'backOut' })
             .to(0.1, { scale: Vec3.ONE }, { easing: 'quadOut' })
             .start();
+    };
+
+    private readonly showFinalPose = (): void => {
+        if (this._onFinished === null || !this._outcomeShown || this._reducedMotion) {
+            return;
+        }
+        this._bossActor?.showFinalPose();
     };
 
     private readonly finishInspection = (): void => {

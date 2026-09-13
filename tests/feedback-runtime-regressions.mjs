@@ -31,11 +31,13 @@ class UIOpacity { opacity = 255; }
 class Label { node = new Node(); string = ''; color = null; }
 class BossInspectionActor {
     initialize(layout) { this.layout = layout; }
-    play(reduced) { this.request = { reduced }; }
+    play(reduced) { this.request = { reduced }; this.poseRequests = []; this.finalPoseCalls = 0; }
+    showPose(pose) { this.poseRequests.push(pose); }
     playResultReaction(passed, reduced) {
         this.resultRequest = { passed, reduced };
         this.resultCalls = (this.resultCalls ?? 0) + 1;
     }
+    showFinalPose() { this.finalPoseCalls++; }
     reset() { this.resets = (this.resets ?? 0) + 1; }
     setPaused(paused) { this.paused = paused; }
 }
@@ -83,6 +85,7 @@ for (const flags of [[true,false,false,false], [false,true,true,true], [true,tru
     assert.equal(view._progressLabel.string, '检查 0/4');
     scheduler.tick(.75);
     assert.match(view._progressLabel.string, /^检查 [1-4]\/4$/);
+    assert.deepEqual(view._bossActor.poseRequests, ['check'], '0.58秒必须切换到普通检查姿势');
     view.setPaused(true); view.setPaused(true); const frozen = view._progressLabel.string; scheduler.tick(90);
     assert.equal(finished, 0, '后台不能结束检查'); assert.equal(view._progressLabel.string, frozen);
     view.setPaused(false); view.setPaused(false); scheduler.tick(1.18);
@@ -90,8 +93,14 @@ for (const flags of [[true,false,false,false], [false,true,true,true], [true,tru
     assert.equal(view._bossActor.resultRequest.passed, passed, '头部反应必须匹配汇总结果');
     assert.equal(view._bossActor.resultRequest.reduced, false);
     assert.equal(view._bossActor.resultCalls, rounds + 1, '每轮结果反应只能触发一次');
+    assert.deepEqual(
+        view._bossActor.poseRequests,
+        ['check', 'magnifier', 'check', 'neutral'],
+        '正常检查必须严格按check→magnifier→check→neutral切换',
+    );
     assert.match(view._feedbackLabel.string, passed ? /✓\s+全部合格/ : /^×\s+\d:false$/, '结果反馈必须同步显示勾或现有问题提示');
     scheduler.tick(1);
+    assert.equal(view._bossActor.finalPoseCalls, 1, '2.52秒最终pass/fail姿势只允许切换一次');
     assert.equal(finished, 1); scheduler.tick(50); assert.equal(finished, 1); assert.equal(callbacks.length, 0); rounds++;
 }
 let canceledFinished = 0;
@@ -104,6 +113,7 @@ reducedMotion = true; const reduced = new InspectionView(); reduced.initialize(v
 reduced.play(Array.from({length:40}, (_,i) => ({passed:true,message:String(i)})), () => reducedFinished++);
 assert.equal(reduced._bossActor.request.reduced, true); assert(callbacks.length <= 14, '大量项目不得创建无限回调');
 scheduler.tick(1.68);
+assert.deepEqual(reduced._bossActor.poseRequests, [], '减少动态效果必须跳过magnifier等快速姿势调度');
 assert.equal(reduced._feedbackOpacity.opacity, 255, '减少动态效果必须直接显示结果反馈');
 assert.match(reduced._feedbackLabel.string, /✓\s+全部合格/);
 scheduler.tick(.87); assert.equal(reducedFinished, 1); assert.equal(callbacks.length, 0);
@@ -180,7 +190,7 @@ console.log('PASS: game top navigation and borderless workspace source regressio
 const bossActorSource = readFileSync(new URL('../assets/scripts/ui/BossInspectionActor.ts', import.meta.url), 'utf8');
 assert.match(
     bossActorSource,
-    /boss-inspector-head\/spriteFrame[\s\S]*boss-inspector-body\/spriteFrame/,
+    /boss-inspector-head\/spriteFrame[\s\S]*boss-inspector-body\/spriteFrame[\s\S]*boss-inspector-check\/spriteFrame[\s\S]*boss-inspector-magnifier\/spriteFrame[\s\S]*boss-inspector-pass\/spriteFrame[\s\S]*boss-inspector-fail\/spriteFrame/,
     '检查动画必须加载从正式Boss确定性拆出的头身资源',
 );
 assert.match(bossActorSource, /\.trim\s*=\s*false/, 'Boss Sprite 必须按原始画布比例显示，不使用裁边拉伸');
@@ -189,14 +199,18 @@ assert.doesNotMatch(
     /TOUCH_START|TOUCH_END|TOUCH_MOVE|BlockInputEvents/,
     'Boss 装饰节点不得注册或阻挡触摸',
 );
-assert.match(bossActorSource, /createUiNode\(this\.node,\s*'Body'/, 'BossRoot必须包含Body节点');
-assert.match(bossActorSource, /createUiNode\(this\.node,\s*'Head'/, 'BossRoot必须包含Head节点');
+assert.match(bossActorSource, /createUiNode\(\s*this\.node,\s*'NeutralLayer'/, 'BossRoot必须包含NeutralLayer');
+assert.match(bossActorSource, /createUiNode\(\s*this\._neutralLayer,\s*'Body'/, 'NeutralLayer必须包含Body节点');
+assert.match(bossActorSource, /createUiNode\(\s*this\._neutralLayer,\s*'Head'/, 'NeutralLayer必须包含Head节点');
+assert.match(bossActorSource, /createUiNode\(\s*this\.node,\s*'PoseLayer'/, 'BossRoot必须包含PoseLayer');
+assert.match(bossActorSource, /createUiNode\(\s*this\._poseLayer,\s*'PoseSprite'/, 'PoseLayer必须只复用PoseSprite');
 assert.match(bossActorSource, /setAnchorPoint\(0\.5, HEAD_NECK_ANCHOR_Y\)/, '头部旋转中心必须位于颈部');
 assert.match(source, /'BossRoot'/, 'InspectionView必须明确创建BossRoot节点');
 assert.match(source, /prefersReducedMotion\(\)/, '检查视图必须读取系统减少动态效果偏好');
 assert.match(source, /find\(\(step\) => !step\.passed\)\?\.message/, '失败结果必须显示现有问题提示');
 
 const actorResourceLoads = [];
+const actorResourceLoadHistory = [];
 const actorTweenRecords = [];
 const activeActorTweens = new Set();
 const actorWarnings = [];
@@ -214,6 +228,7 @@ class ActorUITransform {
 }
 class ActorNode {
     constructor(name = '') { this.name = name; }
+    active = true;
     children = [];
     parent = null;
     position = new ActorVec3();
@@ -256,8 +271,13 @@ const actorMocks = {
     cc: {
         _decorator: { ccclass: () => Type => Type },
         Component: ActorComponent,
+        isValid: () => true,
         Node: ActorNode,
-        resources: { load(path, Type, done) { assert.equal(Type, ActorSpriteFrame); actorResourceLoads.push({ path, done }); } },
+        resources: { load(path, Type, done) {
+            assert.equal(Type, ActorSpriteFrame);
+            actorResourceLoadHistory.push(path);
+            actorResourceLoads.push({ path, done });
+        } },
         Sprite: ActorSprite,
         SpriteFrame: ActorSpriteFrame,
         Tween: ActorTween,
@@ -290,7 +310,7 @@ function createActualBoss() {
 }
 function finishPendingLayerLoads() {
     const loads = actorResourceLoads.splice(0);
-    for (const { done } of loads) done(null, new ActorSpriteFrame());
+    for (const { path, done } of loads) { const frame = new ActorSpriteFrame(); frame.path = path; done(null, frame); }
 }
 function lastTweenFor(target) {
     return actorTweenRecords.filter(record => record.target === target).at(-1);
@@ -313,12 +333,27 @@ function assertNeutral(actor, message) {
 
 const actor = createActualBoss();
 actor.initialize(actorLayout);
-assert.deepEqual(actor.node.children.map(child => child.name), ['Body', 'Head'], 'BossRoot只创建Body和Head且Head位于上层');
+assert.deepEqual(actor.node.children.map(child => child.name), ['NeutralLayer', 'PoseLayer'], 'BossRoot只创建NeutralLayer和PoseLayer');
+assert.deepEqual(actor._neutralLayer.children.map(child => child.name), ['Body', 'Head'], 'NeutralLayer中Head必须位于Body上层');
+assert.deepEqual(actor._poseLayer.children.map(child => child.name), ['PoseSprite'], 'PoseLayer必须只创建并复用一个PoseSprite');
+assert.equal(actorResourceLoads.length, 6, '初始化必须一次预载Head、Body和四张完整姿势');
 actor.play(false);
 assert.equal(actorTweenRecords.length, 0, '资源未就绪前不得播放不可见进场Tween');
 finishPendingLayerLoads();
 assert.equal(actorTweenRecords.length, 4, '资源就绪后应播放既有Root、透明度、Body、Head进场动作');
 assertNeutral(actor, '进场完成');
+
+actor.showPose('check');
+assert.equal(actor._neutralLayer.active, false, 'check显示时NeutralLayer必须隐藏');
+assert.equal(actor._poseLayer.active, true, 'check显示时PoseLayer必须独占显示');
+assert.match(actor._poseSprite.spriteFrame.path, /boss-inspector-check/, 'check姿势映射必须正确');
+actor.showPose('magnifier');
+assert.match(actor._poseSprite.spriteFrame.path, /boss-inspector-magnifier/, 'magnifier姿势映射必须正确');
+assert.equal(lastTweenFor(actor._poseLayer).steps.reduce((sum, step) => sum + step.seconds, 0), .16, 'magnifier弹出必须恰好0.16秒');
+actor.showPose('check');
+actor.showPose('neutral');
+assert.equal(actor._neutralLayer.active, true, 'neutral reaction前必须恢复NeutralLayer');
+assert.equal(actor._poseLayer.active, false, 'neutral reaction前必须隐藏PoseLayer');
 
 actor.playResultReaction(true, false);
 const successHeadProperties = tweenProperties(lastTweenFor(actor._head));
@@ -330,9 +365,14 @@ assert.equal(successHeadProperties[2].scale.y, .96, '成功反应第二次必须
 assert.equal(successHeadProperties[3].position.y, actor._headNeutralY, '成功反应第二次必须回弹到中立位置');
 assert(successHeadProperties.every(value => value.position.x === 0 && value.angle === 0), '成功反应不得左右摇头');
 assertNeutral(actor, '成功点头完成');
+actor.showFinalPose();
+assert.match(actor._poseSprite.spriteFrame.path, /boss-inspector-pass/, '成功最终必须显示pass姿势');
+assert.equal(actor._neutralLayer.active, false, 'pass姿势不得与neutral重叠');
 actor.reset();
 assert.equal(activeActorTweens.size, 0, '退出检查必须清理全部Boss Tween');
 assert.equal(actor._opacity.opacity, 0, '退出检查必须隐藏并归中BossRoot');
+assert.equal(actor._poseSprite.spriteFrame, null, '退出检查必须清除旧Pose SpriteFrame');
+assert.equal(actor._poseLayer.active, false, '退出检查不得残留PoseLayer');
 
 actor.play(false);
 actor.playResultReaction(false, false);
@@ -353,6 +393,8 @@ assert.deepEqual(
     '失败摇头原有角度、水平位移、时长和缓动必须保持不变',
 );
 assertNeutral(actor, '失败摇头完成');
+actor.showFinalPose();
+assert.match(actor._poseSprite.spriteFrame.path, /boss-inspector-fail/, '失败最终必须显示fail姿势');
 
 for (const cleanup of [
     () => actor.reset(),
@@ -368,12 +410,25 @@ for (const cleanup of [
 }
 actor.setPaused(false);
 
+const poseLoadCountBeforeRetries = actorResourceLoadHistory.filter(path => /boss-inspector-(check|magnifier|pass|fail)/.test(path)).length;
+for (let retry = 0; retry < 3; retry++) {
+    actor.play(false);
+    actor.reset();
+}
+assert.equal(
+    actorResourceLoadHistory.filter(path => /boss-inspector-(check|magnifier|pass|fail)/.test(path)).length,
+    poseLoadCountBeforeRetries,
+    '连续三轮重试不得重复加载四张完整姿势',
+);
+
 const tweenCountBeforeReducedMotion = actorTweenRecords.length;
 actor.play(true);
 actor.playResultReaction(true, true);
 assert.equal(actorTweenRecords.length, tweenCountBeforeReducedMotion, '减少动态效果不得创建Root、Body或Head Tween');
 assertNeutral(actor, '减少动态效果');
 assert.equal(actor._opacity.opacity, 255, '减少动态效果应直接显示中立Boss');
+assert.match(actor._poseSprite.spriteFrame.path, /boss-inspector-pass/, '减少动态成功必须直接显示pass并跳过点头');
+assert.equal(actor._poseLayer.active, true, '减少动态结果必须静态显示完整姿势');
 actor.reset();
 
 const lateActor = createActualBoss();
@@ -395,6 +450,69 @@ finishPendingLayerLoads();
 assert.equal(actorTweenRecords.length, tweenCountBeforeDestroyedLoads, '组件销毁后的资源回调不得创建Tween或节点残留');
 assert.equal(activeActorTweens.size, 0, '组件销毁必须清理全部Tween');
 assert.equal(actorWarnings.length, 0, '正式分层资源加载不应警告');
+
+const failedPoseLoads = [];
+const failedPoseLoadHistory = [];
+const failedPoseWarnings = [];
+const failedActorMocks = {
+    ...actorMocks,
+    cc: {
+        ...actorMocks.cc,
+        warn: message => failedPoseWarnings.push(message),
+        resources: { load(path, Type, done) {
+            assert.equal(Type, ActorSpriteFrame);
+            failedPoseLoadHistory.push(path);
+            failedPoseLoads.push({ path, done });
+        } },
+    },
+};
+const failedActorContext = {
+    exports: {},
+    require: name => { assert(name in failedActorMocks, `未声明的失败回退Boss依赖 ${name}`); return failedActorMocks[name]; },
+};
+vm.runInNewContext(actorCompiled, failedActorContext);
+const { BossInspectionActor: FailedPoseBossInspectionActor } = failedActorContext.exports;
+const failedPoseActor = new FailedPoseBossInspectionActor();
+failedPoseActor.node = new ActorNode('BossRoot');
+failedPoseActor.initialize(actorLayout);
+failedPoseActor.play(false);
+assert.equal(failedPoseLoads.length, 6, '失败回退场景也必须先一次性请求全部资源');
+for (const { path, done } of failedPoseLoads.splice(0)) {
+    if (path.includes('boss-inspector-magnifier')) {
+        done(undefined, undefined);
+    } else {
+        const frame = new ActorSpriteFrame(); frame.path = path; done(undefined, frame);
+    }
+}
+assert.equal(failedPoseActor._poseAssetsAvailable, false, '成功回调返回undefined时必须视为姿势资源不可用');
+failedPoseActor.showPose('check');
+assert.equal(failedPoseActor._neutralLayer.active, true, '任一姿势加载失败必须回退neutral');
+assert.equal(failedPoseActor._poseLayer.active, false, '加载失败时不得显示不完整PoseLayer');
+failedPoseActor.playResultReaction(false, false);
+assert.equal(failedPoseActor._reactionStarted, true, '姿势加载失败仍必须正常执行结果反应');
+failedPoseActor.showFinalPose();
+assert.equal(failedPoseActor._neutralLayer.active, true, '最终姿势不可用时也必须稳定回退neutral');
+failedPoseActor.reset();
+assert.equal(activeActorTweens.size, 0, '加载失败流程结束后不得残留Tween');
+assert.equal(failedPoseWarnings.length, 1, '同一Actor姿势失败只警告一次');
+
+const failedRetryActor = new FailedPoseBossInspectionActor();
+failedRetryActor.node = new ActorNode('BossRoot');
+failedRetryActor.initialize(actorLayout);
+for (let retry = 0; retry < 3; retry++) {
+    failedRetryActor.play(false);
+    failedRetryActor.reset();
+}
+assert.equal(
+    failedPoseLoadHistory.filter(path => /boss-inspector-(check|magnifier|pass|fail)/.test(path)).length,
+    4,
+    '失败状态也必须被会话缓存，三轮重试不得重复解码姿势纹理',
+);
+failedRetryActor.onDestroy();
+for (const { done } of failedPoseLoads.splice(0)) {
+    done(undefined, new ActorSpriteFrame());
+}
+assert.equal(activeActorTweens.size, 0, '销毁后的迟到头身回调不得恢复节点或Tween');
 
 assert.match(gameViewSource, /configureLevel[\s\S]*?cancelTransientViews\(\)[\s\S]*?teardownLevel\(\)/, '重试和切关必须先取消检查再重建关卡');
 assert.match(gameViewSource, /cancelGameplay[\s\S]*?cancelTransientViews\(\)/, '退出关卡必须取消检查动画');

@@ -9,7 +9,16 @@ export interface InspectionAnimationTimeline {
     readonly totalSeconds: number;
     readonly shadeSeconds: number;
     readonly outcomeAtSeconds: number;
+    readonly finalPoseAtSeconds: number;
     readonly progressUpdates: readonly InspectionProgressUpdate[];
+    readonly poseUpdates: readonly BossInspectionPoseUpdate[];
+}
+
+export type BossInspectionPose = 'neutral' | 'check' | 'magnifier' | 'pass' | 'fail';
+
+export interface BossInspectionPoseUpdate {
+    readonly pose: Extract<BossInspectionPose, 'check' | 'magnifier' | 'neutral'>;
+    readonly atSeconds: number;
 }
 
 export interface InspectionAnimationLayout {
@@ -27,7 +36,16 @@ export const INSPECTION_REDUCED_TOTAL_SECONDS = 2.55;
 export const INSPECTION_MAX_TOTAL_SECONDS = 3.2;
 export const INSPECTION_MAX_PROGRESS_UPDATES = 12;
 export const INSPECTION_NORMAL_OUTCOME_SECONDS = 1.92;
+export const INSPECTION_FINAL_POSE_SECONDS = 2.52;
+export const BOSS_MAGNIFIER_POP_SECONDS = 0.16;
 export const BOSS_HEAD_NECK_PIVOT_SOURCE_Y = 792;
+
+export const INSPECTION_NORMAL_POSE_UPDATES: readonly BossInspectionPoseUpdate[] = [
+    { pose: 'check', atSeconds: 0.58 },
+    { pose: 'magnifier', atSeconds: 1.05 },
+    { pose: 'check', atSeconds: 1.42 },
+    { pose: 'neutral', atSeconds: 1.82 },
+];
 
 export interface HeadReactionKeyframe {
     readonly seconds: number;
@@ -113,7 +131,9 @@ export function calculateInspectionAnimationTimeline(
         totalSeconds,
         shadeSeconds: reducedMotion ? 0.12 : 0.3,
         outcomeAtSeconds,
+        finalPoseAtSeconds: reducedMotion ? outcomeAtSeconds : INSPECTION_FINAL_POSE_SECONDS,
         progressUpdates,
+        poseUpdates: reducedMotion ? [] : INSPECTION_NORMAL_POSE_UPDATES,
     };
 }
 
