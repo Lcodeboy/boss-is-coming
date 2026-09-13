@@ -3,9 +3,15 @@ import { InspectionSequence } from '../assets/scripts/core/InspectionSequence';
 import {
     calculateInspectionAnimationLayout,
     calculateInspectionAnimationTimeline,
+    FAILURE_BODY_REACTION,
     INSPECTION_MAX_PROGRESS_UPDATES,
     INSPECTION_MAX_TOTAL_SECONDS,
+    INSPECTION_NORMAL_OUTCOME_SECONDS,
+    INSPECTION_NORMAL_TOTAL_SECONDS,
+    INSPECTION_REDUCED_TOTAL_SECONDS,
     FAILURE_HEAD_REACTION,
+    reactionDuration,
+    SUCCESS_BODY_REACTION,
     SUCCESS_HEAD_REACTION,
 } from '../assets/scripts/core/InspectionAnimation';
 import {
@@ -112,6 +118,14 @@ for (const stepCount of [0, 1, 4, 12, 40, 500]) {
         const timeline = calculateInspectionAnimationTimeline(stepCount, reducedMotion);
         assert(timeline.totalSeconds >= 2.5, `${stepCount}项检查动画不得短于2.5秒`);
         assert(timeline.totalSeconds <= INSPECTION_MAX_TOTAL_SECONDS, `${stepCount}项检查动画不得超过3.2秒`);
+        assert(
+            timeline.totalSeconds === (reducedMotion ? INSPECTION_REDUCED_TOTAL_SECONDS : INSPECTION_NORMAL_TOTAL_SECONDS),
+            `${stepCount}项检查总时长必须保持既定流程`,
+        );
+        assert(
+            timeline.outcomeAtSeconds === (reducedMotion ? 1.68 : INSPECTION_NORMAL_OUTCOME_SECONDS),
+            `${stepCount}项检查结果出现时间必须保持不变`,
+        );
         assert(timeline.outcomeAtSeconds < timeline.totalSeconds, `${stepCount}项总结果必须在结算前展示`);
         assert(
             timeline.progressUpdates.length <= INSPECTION_MAX_PROGRESS_UPDATES,
@@ -130,16 +144,59 @@ for (const stepCount of [0, 1, 4, 12, 40, 500]) {
     }
 }
 
-assert(SUCCESS_HEAD_REACTION.some((frame) => frame.y <= -8 && frame.scaleY <= 0.97), '成功反应必须由头部下沉和纵向压缩表达');
+const successNods = SUCCESS_HEAD_REACTION.filter((frame) => frame.y < 0);
+assert(successNods.length === 2, '成功反应必须包含一大一小两次点头');
+assert(successNods[0].y >= -22 && successNods[0].y <= -18, '首次点头必须下沉18～22设计像素');
+assert(successNods[0].scaleY >= 0.93 && successNods[0].scaleY <= 0.95, '首次点头必须明显纵向压缩');
+assert(successNods[1].y >= -12 && successNods[1].y <= -10, '第二次点头必须下沉10～12设计像素');
+assert(successNods[1].scaleY === 0.96, '第二次点头必须保留0.96纵向压缩');
+assert(SUCCESS_HEAD_REACTION[1].y >= 3 && SUCCESS_HEAD_REACTION[1].y <= 5, '首次点头后必须回弹到原位上方3～5设计像素');
+assert(SUCCESS_HEAD_REACTION[3].y === 0 && SUCCESS_HEAD_REACTION[3].scaleY === 1, '第二次点头后必须再次回弹到中立姿态');
 assert(SUCCESS_HEAD_REACTION.every((frame) => frame.angle === 0 && frame.x === 0), '成功点头不得使用左右摇摆作为主要动作');
-assert(FAILURE_HEAD_REACTION.some((frame) => frame.angle <= -7) && FAILURE_HEAD_REACTION.some((frame) => frame.angle >= 7), '失败反应必须包含明显正负摇头旋转');
+assert(
+    FAILURE_HEAD_REACTION.slice(0, 5).map((frame) => frame.angle).join(',') === '-7,7,-5,5,0',
+    '失败反应必须按-7°、+7°、-5°、+5°、0°依次摇头',
+);
+assert(FAILURE_HEAD_REACTION.every((frame) => Math.abs(frame.x) <= 3), '失败摇头水平位移不得超过3设计像素');
 assert(FAILURE_HEAD_REACTION.every((frame) => frame.y === 0 && frame.scaleY === 1), '失败摇头不得使用上下点动作为主要动作');
+assert(
+    JSON.stringify(FAILURE_HEAD_REACTION) === JSON.stringify([
+        { seconds: 0.09, x: -2, y: 0, scaleY: 1, angle: -7, easing: 'quadInOut' },
+        { seconds: 0.1, x: 2, y: 0, scaleY: 1, angle: 7, easing: 'quadInOut' },
+        { seconds: 0.09, x: -1.5, y: 0, scaleY: 1, angle: -5, easing: 'quadInOut' },
+        { seconds: 0.1, x: 1.5, y: 0, scaleY: 1, angle: 5, easing: 'quadInOut' },
+        { seconds: 0.14, x: 0, y: 0, scaleY: 1, angle: 0, easing: 'quadOut' },
+        { seconds: 0.06, x: 0, y: 0, scaleY: 1, angle: 0, easing: 'quadOut' },
+    ]),
+    '失败摇头的角度、位移、节奏和缓动不得改变',
+);
+assert(
+    JSON.stringify(SUCCESS_HEAD_REACTION.map(({ x, y, scaleY, angle }) => ({ x, y, scaleY, angle })))
+    !== JSON.stringify(FAILURE_HEAD_REACTION.map(({ x, y, scaleY, angle }) => ({ x, y, scaleY, angle }))),
+    '点头和摇头轨迹必须明显不同',
+);
 const successLast = SUCCESS_HEAD_REACTION[SUCCESS_HEAD_REACTION.length - 1];
 const failureLast = FAILURE_HEAD_REACTION[FAILURE_HEAD_REACTION.length - 1];
 assert(successLast.x === 0 && successLast.y === 0 && successLast.scaleY === 1 && successLast.angle === 0, '点头结束必须恢复中立');
 assert(failureLast.x === 0 && failureLast.y === 0 && failureLast.scaleY === 1 && failureLast.angle === 0, '摇头结束必须恢复中立');
-assert(SUCCESS_HEAD_REACTION.reduce((sum, frame) => sum + frame.seconds, 0) >= .55, '点头时长应达到0.55秒');
-assert(FAILURE_HEAD_REACTION.reduce((sum, frame) => sum + frame.seconds, 0) >= .55, '摇头时长应达到0.55秒');
+for (const [name, reaction] of [
+    ['点头', SUCCESS_HEAD_REACTION],
+    ['摇头', FAILURE_HEAD_REACTION],
+] as const) {
+    const duration = reactionDuration(reaction);
+    assert(duration >= 0.55 && duration <= 0.65, `${name}时长必须为0.55～0.65秒`);
+    assert(INSPECTION_NORMAL_OUTCOME_SECONDS + duration < INSPECTION_NORMAL_TOTAL_SECONDS, `${name}必须在2.9秒流程内完成`);
+}
+assert(SUCCESS_BODY_REACTION.every((frame) => Math.abs(frame.y) <= 3 && frame.x === 0), '成功时身体最多下沉3设计像素');
+assert(FAILURE_BODY_REACTION.every((frame) => Math.abs(frame.y) <= 2 && Math.abs(frame.x) <= 1), '失败时身体必须基本静止');
+assert(
+    Math.abs(reactionDuration(SUCCESS_BODY_REACTION) - reactionDuration(SUCCESS_HEAD_REACTION)) < 1e-9,
+    '成功头身辅助动作必须同时结束',
+);
+assert(
+    Math.abs(reactionDuration(FAILURE_BODY_REACTION) - reactionDuration(FAILURE_HEAD_REACTION)) < 1e-9,
+    '失败头身辅助动作必须同时结束',
+);
 
 for (const taskResults of requiredCases) {
     const result = runRound(new GameStateMachine(), new InspectionSequence(), taskResults);

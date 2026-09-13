@@ -26,18 +26,59 @@ export const INSPECTION_NORMAL_TOTAL_SECONDS = 2.9;
 export const INSPECTION_REDUCED_TOTAL_SECONDS = 2.55;
 export const INSPECTION_MAX_TOTAL_SECONDS = 3.2;
 export const INSPECTION_MAX_PROGRESS_UPDATES = 12;
+export const INSPECTION_NORMAL_OUTCOME_SECONDS = 1.92;
+export const BOSS_HEAD_NECK_PIVOT_SOURCE_Y = 792;
 
-export interface HeadReactionKeyframe { readonly seconds: number; readonly x: number; readonly y: number; readonly scaleY: number; readonly angle: number; }
+export interface HeadReactionKeyframe {
+    readonly seconds: number;
+    readonly x: number;
+    readonly y: number;
+    readonly scaleY: number;
+    readonly angle: number;
+    readonly easing: 'quadIn' | 'quadOut' | 'quadInOut' | 'backOut';
+}
+
+export interface BodyReactionKeyframe {
+    readonly seconds: number;
+    readonly x: number;
+    readonly y: number;
+    readonly easing: 'quadIn' | 'quadOut';
+}
+
 export const SUCCESS_HEAD_REACTION: readonly HeadReactionKeyframe[] = [
-    { seconds:.13,x:0,y:-11,scaleY:.96,angle:0 }, { seconds:.14,x:0,y:0,scaleY:1,angle:0 },
-    { seconds:.10,x:0,y:-6,scaleY:.975,angle:0 }, { seconds:.16,x:0,y:0,scaleY:1,angle:0 },
-    { seconds:.06,x:0,y:0,scaleY:1,angle:0 },
+    { seconds: 0.12, x: 0, y: -20, scaleY: 0.94, angle: 0, easing: 'quadIn' },
+    { seconds: 0.12, x: 0, y: 4, scaleY: 1, angle: 0, easing: 'backOut' },
+    { seconds: 0.12, x: 0, y: -11, scaleY: 0.96, angle: 0, easing: 'quadIn' },
+    { seconds: 0.19, x: 0, y: 0, scaleY: 1, angle: 0, easing: 'backOut' },
+    { seconds: 0.05, x: 0, y: 0, scaleY: 1, angle: 0, easing: 'quadOut' },
 ];
+
 export const FAILURE_HEAD_REACTION: readonly HeadReactionKeyframe[] = [
-    { seconds:.10,x:-2,y:0,scaleY:1,angle:-7 }, { seconds:.10,x:2,y:0,scaleY:1,angle:7 },
-    { seconds:.09,x:-2,y:0,scaleY:1,angle:-5 }, { seconds:.09,x:2,y:0,scaleY:1,angle:5 },
-    { seconds:.16,x:0,y:0,scaleY:1,angle:0 }, { seconds:.04,x:0,y:0,scaleY:1,angle:0 },
+    { seconds: 0.09, x: -2, y: 0, scaleY: 1, angle: -7, easing: 'quadInOut' },
+    { seconds: 0.1, x: 2, y: 0, scaleY: 1, angle: 7, easing: 'quadInOut' },
+    { seconds: 0.09, x: -1.5, y: 0, scaleY: 1, angle: -5, easing: 'quadInOut' },
+    { seconds: 0.1, x: 1.5, y: 0, scaleY: 1, angle: 5, easing: 'quadInOut' },
+    { seconds: 0.14, x: 0, y: 0, scaleY: 1, angle: 0, easing: 'quadOut' },
+    { seconds: 0.06, x: 0, y: 0, scaleY: 1, angle: 0, easing: 'quadOut' },
 ];
+
+export const SUCCESS_BODY_REACTION: readonly BodyReactionKeyframe[] = [
+    { seconds: 0.14, x: 0, y: -3, easing: 'quadIn' },
+    { seconds: 0.18, x: 0, y: 0, easing: 'quadOut' },
+    { seconds: 0.28, x: 0, y: 0, easing: 'quadOut' },
+];
+
+export const FAILURE_BODY_REACTION: readonly BodyReactionKeyframe[] = [
+    { seconds: 0.12, x: -1, y: 2, easing: 'quadOut' },
+    { seconds: 0.16, x: 0, y: 0, easing: 'quadOut' },
+    { seconds: 0.3, x: 0, y: 0, easing: 'quadOut' },
+];
+
+export function reactionDuration(
+    keyframes: readonly { readonly seconds: number }[],
+): number {
+    return keyframes.reduce((total, frame) => total + frame.seconds, 0);
+}
 
 const BOSS_SOURCE_ASPECT = 1024 / 1536;
 
@@ -54,7 +95,7 @@ export function calculateInspectionAnimationTimeline(
         : INSPECTION_NORMAL_TOTAL_SECONDS;
     const progressStart = reducedMotion ? 0.28 : 0.7;
     const progressEnd = reducedMotion ? 1.42 : 1.58;
-    const outcomeAtSeconds = reducedMotion ? 1.68 : 1.92;
+    const outcomeAtSeconds = reducedMotion ? 1.68 : INSPECTION_NORMAL_OUTCOME_SECONDS;
     const updateCount = Math.min(stepCount, INSPECTION_MAX_PROGRESS_UPDATES);
     const progressUpdates: InspectionProgressUpdate[] = [];
     for (let updateIndex = 0; updateIndex < updateCount; updateIndex += 1) {

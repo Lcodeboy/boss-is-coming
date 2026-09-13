@@ -48,6 +48,7 @@ export class GameFlowController extends Component {
         this._lifecycle?.dispose();
         this._audio?.resetRound();
         this._timer?.stopTimer();
+        this._gameView?.cancelGameplay();
         this._stateMachine.setListener(null);
         this._gameView = null;
         this._level = null;

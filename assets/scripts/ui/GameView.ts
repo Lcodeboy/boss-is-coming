@@ -797,8 +797,10 @@ export class GameView extends Component {
 
     protected override onDestroy(): void {
         if (this._audio !== null) { this._audio.onBeat = null; }
+        this._inspectionView?.cancel();
         this.stopToastTween();
         this.teardownLevel();
+        this._inspectionView = null;
         this._actions = null;
         this._audio = null;
     }

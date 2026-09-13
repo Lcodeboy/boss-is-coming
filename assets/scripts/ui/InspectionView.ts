@@ -51,7 +51,7 @@ export class InspectionView extends Component {
 
         const actorNode = createUiNode(
             this.node,
-            'BossInspectionActor',
+            'BossRoot',
             layout.actorWidth,
             layout.actorHeight,
         );
@@ -126,7 +126,6 @@ export class InspectionView extends Component {
         this._outcomeShown = false;
         this._reducedMotion = prefersReducedMotion();
         const timeline = calculateInspectionAnimationTimeline(steps.length, this._reducedMotion);
-        const passed = steps.every((step) => step.passed);
 
         if (this._titleLabel !== null) {
             this._titleLabel.string = '老板进场检查…';
@@ -139,9 +138,13 @@ export class InspectionView extends Component {
         this.resetVisualState();
         this.node.active = true;
         if (this._shadeOpacity !== null) {
-            tween(this._shadeOpacity).to(timeline.shadeSeconds, { opacity: 255 }).start();
+            if (this._reducedMotion) {
+                this._shadeOpacity.opacity = 255;
+            } else {
+                tween(this._shadeOpacity).to(timeline.shadeSeconds, { opacity: 255 }).start();
+            }
         }
-        this._bossActor?.play(passed, this._reducedMotion, timeline);
+        this._bossActor?.play(this._reducedMotion);
 
         for (const update of timeline.progressUpdates) {
             this.scheduleOnce(() => this.showProgress(update.index), update.atSeconds);
@@ -175,11 +178,7 @@ export class InspectionView extends Component {
     }
 
     protected override onDisable(): void {
-        if (this._onFinished !== null) {
-            this.clearPlayback();
-        } else {
-            this.stopVisualTweens();
-        }
+        this.clearPlayback();
     }
 
     protected override onDestroy(): void {
@@ -222,12 +221,13 @@ export class InspectionView extends Component {
             this._formal ? 2 : 3,
         );
         this._feedbackLabel.string = passed
-            ? '✓  全部合格 · 检查通过'
-            : `×  发现 ${failedCount} 项未完成`;
+            ? '✓  全部合格'
+            : `×  ${this._steps.find((step) => !step.passed)?.message ?? `发现 ${failedCount} 项未完成`}`;
         this._feedbackLabel.color = passed ? Palette.success : Palette.warning;
         this._feedbackOpacity.opacity = 0;
         if (this._reducedMotion) {
-            tween(this._feedbackOpacity).to(0.12, { opacity: 255 }).start();
+            this._feedbackPanel.setScale(Vec3.ONE);
+            this._feedbackOpacity.opacity = 255;
             return;
         }
         this._feedbackPanel.setScale(0.94, 0.94, 1);
@@ -265,6 +265,9 @@ export class InspectionView extends Component {
     }
 
     private clearPlayback(): void {
+        const target: Pick<Component, 'uuid'> = this;
+        director.getScheduler().resumeTarget(target);
+        this._paused = false;
         this.unscheduleAllCallbacks();
         this._steps = [];
         this._onFinished = null;
