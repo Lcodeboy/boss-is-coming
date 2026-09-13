@@ -19,7 +19,11 @@ export type BossInspectionPose = 'neutral' | 'check' | 'magnifier' | 'pass' | 'f
 export interface BossInspectionPoseUpdate {
     readonly pose: Extract<BossInspectionPose, 'check' | 'magnifier' | 'neutral'>;
     readonly atSeconds: number;
+    readonly durationSeconds: number;
+    readonly transitionStyle: BossPoseTransitionStyle;
 }
+
+export type BossPoseTransitionStyle = 'singleSwap' | 'checkToMagnifier' | 'magnifierToCheck';
 
 export interface InspectionAnimationLayout {
     readonly actorWidth: number;
@@ -37,14 +41,23 @@ export const INSPECTION_MAX_TOTAL_SECONDS = 3.2;
 export const INSPECTION_MAX_PROGRESS_UPDATES = 12;
 export const INSPECTION_NORMAL_OUTCOME_SECONDS = 1.92;
 export const INSPECTION_FINAL_POSE_SECONDS = 2.52;
-export const BOSS_MAGNIFIER_POP_SECONDS = 0.16;
+export const BOSS_POSE_TRANSITION_SECONDS = 0.1;
+export const BOSS_POSE_SWAP_OUT_SECONDS = 0.045;
+export const BOSS_POSE_SWAP_OPACITY = 210;
+export const BOSS_MAGNIFIER_PREPARE_SECONDS = 0.055;
+export const BOSS_MAGNIFIER_POP_OUT_SECONDS = 0.06;
+export const BOSS_MAGNIFIER_SETTLE_SECONDS = 0.055;
+export const BOSS_MAGNIFIER_TRANSITION_SECONDS = 0.17;
+export const BOSS_MAGNIFIER_RETURN_PREPARE_SECONDS = 0.045;
+export const RESULT_MODAL_ENTRANCE_SECONDS = 0.18;
+export const RESULT_MODAL_REDUCED_ENTRANCE_SECONDS = 0.08;
 export const BOSS_HEAD_NECK_PIVOT_SOURCE_Y = 792;
 
 export const INSPECTION_NORMAL_POSE_UPDATES: readonly BossInspectionPoseUpdate[] = [
-    { pose: 'check', atSeconds: 0.58 },
-    { pose: 'magnifier', atSeconds: 1.05 },
-    { pose: 'check', atSeconds: 1.42 },
-    { pose: 'neutral', atSeconds: 1.82 },
+    { pose: 'check', atSeconds: 0.58, durationSeconds: 0.1, transitionStyle: 'singleSwap' },
+    { pose: 'magnifier', atSeconds: 1.02, durationSeconds: 0.17, transitionStyle: 'checkToMagnifier' },
+    { pose: 'check', atSeconds: 1.42, durationSeconds: 0.1, transitionStyle: 'magnifierToCheck' },
+    { pose: 'neutral', atSeconds: 1.82, durationSeconds: 0.1, transitionStyle: 'singleSwap' },
 ];
 
 export interface HeadReactionKeyframe {

@@ -1,5 +1,10 @@
-import { _decorator, Component, Label, Node } from 'cc';
+import { _decorator, Component, Label, Node, Tween, tween, UIOpacity, Vec3 } from 'cc';
+import {
+    RESULT_MODAL_ENTRANCE_SECONDS,
+    RESULT_MODAL_REDUCED_ENTRANCE_SECONDS,
+} from '../core/InspectionAnimation';
 import { calculateSafeModalLayout, FixedWidthViewport } from '../core/ViewportLayout';
+import { prefersReducedMotion } from '../game/CocosFeedbackProviders';
 import { ActionButton } from './ActionButton';
 import { createLabel, createRoundedPanel, drawRoundedPanel, Palette } from './UIFactory';
 import { createModalCard, createThemedButton, paintButton, paintModalCard } from './VisualFactory';
@@ -38,6 +43,7 @@ export class ResultView extends Component {
     private _returnButton: ActionButton | null = null;
     private _statusBadge: Node | null = null;
     private _statusBadgeLabel: Label | null = null;
+    private _cardOpacity: UIOpacity | null = null;
     private _formal = false;
 
     public initialize(viewport: FixedWidthViewport, actions: ResultActions): void {
@@ -52,6 +58,8 @@ export class ResultView extends Component {
             0,
             calculateSafeModalLayout(viewport, RESULT_VISUAL_METRICS.cardHeight).centerY,
         );
+        this._cardOpacity = this._card.addComponent(UIOpacity);
+        this._cardOpacity.opacity = 255;
         this._statusBadge = createRoundedPanel(
             this._card,
             'StatusBadge',
@@ -128,11 +136,52 @@ export class ResultView extends Component {
         }
         this.layoutButtons(result);
         this.setButtonsEnabled(true);
+        this.stopEntranceAnimation();
+        const reducedMotion = prefersReducedMotion();
+        this._card.setScale(reducedMotion ? Vec3.ONE : new Vec3(0.96, 0.96, 1));
+        if (this._cardOpacity !== null) {
+            this._cardOpacity.opacity = 0;
+        }
         this.node.active = true;
+        if (this._cardOpacity !== null) {
+            tween(this._cardOpacity)
+                .to(
+                    reducedMotion ? RESULT_MODAL_REDUCED_ENTRANCE_SECONDS : RESULT_MODAL_ENTRANCE_SECONDS,
+                    { opacity: 255 },
+                    { easing: 'quadOut' },
+                )
+                .start();
+        }
+        if (!reducedMotion) {
+            tween(this._card)
+                .to(RESULT_MODAL_ENTRANCE_SECONDS, { scale: Vec3.ONE }, { easing: 'backOut' })
+                .start();
+        }
     }
 
     public hide(): void {
+        this.stopEntranceAnimation();
+        this.restoreEntranceState();
         this.node.active = false;
+    }
+
+    public setPaused(paused: boolean): void {
+        if (!paused) {
+            return;
+        }
+        this.stopEntranceAnimation();
+        this.restoreEntranceState();
+    }
+
+    protected override onDisable(): void {
+        this.stopEntranceAnimation();
+        this.restoreEntranceState();
+    }
+
+    protected override onDestroy(): void {
+        this.stopEntranceAnimation();
+        this._cardOpacity = null;
+        this._card = null;
     }
 
     private layoutButtons(result: ResultPresentation): void {
@@ -185,5 +234,21 @@ export class ResultView extends Component {
         this._nextButton?.setInteractable(enabled);
         this._retryButton?.setInteractable(enabled);
         this._returnButton?.setInteractable(enabled);
+    }
+
+    private stopEntranceAnimation(): void {
+        if (this._cardOpacity !== null) {
+            Tween.stopAllByTarget(this._cardOpacity);
+        }
+        if (this._card !== null) {
+            Tween.stopAllByTarget(this._card);
+        }
+    }
+
+    private restoreEntranceState(): void {
+        if (this._cardOpacity !== null) {
+            this._cardOpacity.opacity = 255;
+        }
+        this._card?.setScale(Vec3.ONE);
     }
 }

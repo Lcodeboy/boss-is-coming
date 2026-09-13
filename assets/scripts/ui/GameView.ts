@@ -807,6 +807,7 @@ export class GameView extends Component {
 
     public setLifecyclePaused(paused: boolean, showContinue: boolean): void {
         this._inspectionView?.setPaused(paused);
+        this._resultView?.setPaused(paused);
         if (paused) {
             this._workItems.forEach((item) => item.cancelFeedback());
             this._gameRoot?.getComponentsInChildren(ActionButton).forEach((button) => button.cancelFeedback());

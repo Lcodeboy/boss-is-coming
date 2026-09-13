@@ -45,6 +45,48 @@ const EXPECTED_NEUTRAL_UUIDS = new Map([
     ['boss-inspector-body.png.meta', 'a30bf240-97a2-4cca-873a-e1b49543be58'],
 ]);
 const EXISTING_NEUTRAL_UUIDS = new Set(EXPECTED_NEUTRAL_UUIDS.values());
+const RUNTIME_ASSETS = [
+    {
+        pose: 'neutral',
+        destination: resolve(CHARACTER_DIRECTORY, 'boss-inspector.png'),
+        resourcePath: 'characters/boss-inspector/spriteFrame',
+        hash: '712ddd4f9140a1c4b1169544535af0bd721a866cae31f73959a512e162205665',
+        imageUuid: '1c779f51-667b-4954-b09b-32bed445f7c6',
+        spriteFrameUuid: '1c779f51-667b-4954-b09b-32bed445f7c6@f9941',
+    },
+    {
+        pose: 'head',
+        destination: resolve(CHARACTER_DIRECTORY, 'boss-inspector-head.png'),
+        resourcePath: 'characters/boss-inspector-head/spriteFrame',
+        hash: 'bb197c8472ea6e23c39249813167cf2d39c902d43534f273259eb05e71c4c536',
+        imageUuid: 'cf8c294b-f579-4fc1-8a64-4698ff83d9b4',
+        spriteFrameUuid: 'cf8c294b-f579-4fc1-8a64-4698ff83d9b4@f9941',
+    },
+    {
+        pose: 'body',
+        destination: resolve(CHARACTER_DIRECTORY, 'boss-inspector-body.png'),
+        resourcePath: 'characters/boss-inspector-body/spriteFrame',
+        hash: 'fa0dc96b33907c995beeeb09240f1eb5c3bcbee871657abbc30592b312bee0f3',
+        imageUuid: 'a30bf240-97a2-4cca-873a-e1b49543be58',
+        spriteFrameUuid: 'a30bf240-97a2-4cca-873a-e1b49543be58@f9941',
+    },
+    ...ASSETS.map((asset) => {
+        const uuids = {
+            check: ['00f3e6c8-a8df-412d-88cc-521b36b5eaff', '00f3e6c8-a8df-412d-88cc-521b36b5eaff@f9941'],
+            magnifier: ['009629e4-fb59-4017-af9a-193b1e61d426', '009629e4-fb59-4017-af9a-193b1e61d426@f9941'],
+            pass: ['08e32591-a554-4a2b-853f-41a4f4236785', '08e32591-a554-4a2b-853f-41a4f4236785@f9941'],
+            fail: ['54a4a14d-b5ca-4978-98fe-ef784f05cf19', '54a4a14d-b5ca-4978-98fe-ef784f05cf19@f9941'],
+        }[asset.pose];
+        return {
+            pose: asset.pose,
+            destination: asset.destination,
+            resourcePath: `characters/boss-inspector-${asset.pose}/spriteFrame`,
+            hash: asset.hash,
+            imageUuid: uuids[0],
+            spriteFrameUuid: uuids[1],
+        };
+    }),
+];
 
 function sha256(path) {
     return createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -68,6 +110,22 @@ for (const [file, expectedUuid] of EXPECTED_NEUTRAL_UUIDS) {
 const originalMeta = readMeta(resolve(CHARACTER_DIRECTORY, 'boss-inspector.png.meta'));
 const originalSpriteMeta = Object.values(originalMeta.subMetas).find((entry) => entry.name === 'spriteFrame');
 assert(originalSpriteMeta, '现有boss-inspector必须包含SpriteFrame子资源');
+
+const allImageUuids = new Set();
+const allSpriteFrameUuids = new Set();
+for (const asset of RUNTIME_ASSETS) {
+    assert(existsSync(asset.destination), `${asset.pose}运行时PNG必须存在`);
+    assert.equal(sha256(asset.destination), asset.hash, `${asset.pose}运行时PNG哈希不得变化`);
+    const meta = readMeta(`${asset.destination}.meta`);
+    const spriteMeta = Object.values(meta.subMetas).find((entry) => entry.name === 'spriteFrame');
+    assert(spriteMeta, `${asset.pose}必须包含SpriteFrame子资源`);
+    assert.equal(meta.uuid, asset.imageUuid, `${asset.pose}图片UUID必须稳定`);
+    assert.equal(spriteMeta.uuid, asset.spriteFrameUuid, `${asset.pose} SpriteFrame UUID必须稳定`);
+    assert(!allImageUuids.has(meta.uuid), `${asset.pose}图片UUID必须唯一`);
+    assert(!allSpriteFrameUuids.has(spriteMeta.uuid), `${asset.pose} SpriteFrame UUID必须唯一`);
+    allImageUuids.add(meta.uuid);
+    allSpriteFrameUuids.add(spriteMeta.uuid);
+}
 
 const imageUuids = new Set();
 const spriteFrameUuids = new Set();
@@ -118,7 +176,7 @@ if (CHECK_BUILDS) {
             !/magnifier[^\"]*(?:board|check)|(?:board|check)[^\"]*magnifier/i.test(resourceConfig),
             `${platform}资源索引不得注册废弃的放大镜＋检查板资源`,
         );
-        for (const asset of ASSETS) {
+        for (const asset of RUNTIME_ASSETS) {
             const meta = readMeta(`${asset.destination}.meta`);
             const builtPng = resolve(output, 'assets/resources/native', meta.uuid.slice(0, 2), `${meta.uuid}.png`);
             const builtSpriteFrame = resolve(
@@ -131,7 +189,7 @@ if (CHECK_BUILDS) {
             assert(existsSync(builtSpriteFrame), `${platform}必须包含${asset.pose} SpriteFrame`);
             assert.equal(sha256(builtPng), asset.hash, `${platform}中的${asset.pose}纹理不得被有损处理`);
             assert(
-                resourceConfig.includes(`characters/boss-inspector-${asset.pose}/spriteFrame`),
+                resourceConfig.includes(asset.resourcePath),
                 `${platform}必须注册${asset.pose}资源加载路径`,
             );
         }
@@ -150,4 +208,4 @@ if (CHECK_BUILDS) {
     }
 }
 
-console.log(`PASS: four byte-identical boss pose PNGs, Creator metas, unique UUIDs${CHECK_BUILDS ? ', Web Mobile and Douyin packages' : ''}`);
+console.log(`PASS: five formal boss states plus Head/Body, stable Creator UUIDs${CHECK_BUILDS ? ', Web Mobile and Douyin packages' : ''}`);

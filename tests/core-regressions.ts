@@ -3,7 +3,14 @@ import { InspectionSequence } from '../assets/scripts/core/InspectionSequence';
 import {
     calculateInspectionAnimationLayout,
     calculateInspectionAnimationTimeline,
-    BOSS_MAGNIFIER_POP_SECONDS,
+    BOSS_MAGNIFIER_POP_OUT_SECONDS,
+    BOSS_MAGNIFIER_PREPARE_SECONDS,
+    BOSS_MAGNIFIER_RETURN_PREPARE_SECONDS,
+    BOSS_MAGNIFIER_SETTLE_SECONDS,
+    BOSS_MAGNIFIER_TRANSITION_SECONDS,
+    BOSS_POSE_SWAP_OPACITY,
+    BOSS_POSE_SWAP_OUT_SECONDS,
+    BOSS_POSE_TRANSITION_SECONDS,
     FAILURE_BODY_REACTION,
     INSPECTION_FINAL_POSE_SECONDS,
     INSPECTION_MAX_PROGRESS_UPDATES,
@@ -14,6 +21,8 @@ import {
     INSPECTION_REDUCED_TOTAL_SECONDS,
     FAILURE_HEAD_REACTION,
     reactionDuration,
+    RESULT_MODAL_ENTRANCE_SECONDS,
+    RESULT_MODAL_REDUCED_ENTRANCE_SECONDS,
     SUCCESS_BODY_REACTION,
     SUCCESS_HEAD_REACTION,
 } from '../assets/scripts/core/InspectionAnimation';
@@ -158,18 +167,42 @@ for (const stepCount of [0, 1, 4, 12, 40, 500]) {
 
 assert(
     JSON.stringify(INSPECTION_NORMAL_POSE_UPDATES) === JSON.stringify([
-        { pose: 'check', atSeconds: 0.58 },
-        { pose: 'magnifier', atSeconds: 1.05 },
-        { pose: 'check', atSeconds: 1.42 },
-        { pose: 'neutral', atSeconds: 1.82 },
+        { pose: 'check', atSeconds: 0.58, durationSeconds: 0.1, transitionStyle: 'singleSwap' },
+        { pose: 'magnifier', atSeconds: 1.02, durationSeconds: 0.17, transitionStyle: 'checkToMagnifier' },
+        { pose: 'check', atSeconds: 1.42, durationSeconds: 0.1, transitionStyle: 'magnifierToCheck' },
+        { pose: 'neutral', atSeconds: 1.82, durationSeconds: 0.1, transitionStyle: 'singleSwap' },
     ]),
     '正常动画必须严格按 neutral→check→magnifier→check→neutral reaction 切换',
 );
-assert(1.42 - 1.05 <= 0.5, 'magnifier显示时间不得超过0.5秒');
-assert(BOSS_MAGNIFIER_POP_SECONDS <= 0.16, 'magnifier弹出动画不得超过0.16秒');
+assert(BOSS_POSE_TRANSITION_SECONDS >= 0.09 && BOSS_POSE_TRANSITION_SECONDS <= 0.12, '普通单帧换图必须在90～120ms内完成');
+assert(BOSS_POSE_SWAP_OUT_SECONDS >= 0.04 && BOSS_POSE_SWAP_OUT_SECONDS <= 0.05, '普通姿势必须先收缩40～50ms');
+assert(BOSS_POSE_SWAP_OPACITY === 210, '换图遮掩阶段必须保持可见且降低至Alpha 210');
+assert(Math.abs(0.58 + BOSS_POSE_TRANSITION_SECONDS - 0.68) < 1e-9, 'neutral→check必须在0.68秒完成');
+assert(
+    BOSS_MAGNIFIER_PREPARE_SECONDS >= 0.05 && BOSS_MAGNIFIER_PREPARE_SECONDS <= 0.06,
+    'check→magnifier必须先收缩50～60ms',
+);
+assert(BOSS_MAGNIFIER_POP_OUT_SECONDS === 0.06, 'magnifier必须用60ms从0.97恢复并轻微放大');
+assert(BOSS_MAGNIFIER_SETTLE_SECONDS >= 0.05 && BOSS_MAGNIFIER_SETTLE_SECONDS <= 0.06, 'magnifier必须用50～60ms恢复到1.0');
+assert(
+    Math.abs(BOSS_MAGNIFIER_PREPARE_SECONDS + BOSS_MAGNIFIER_POP_OUT_SECONDS + BOSS_MAGNIFIER_SETTLE_SECONDS - BOSS_MAGNIFIER_TRANSITION_SECONDS) < 1e-9,
+    'magnifier单帧换图及回弹总时间必须固定为170ms',
+);
+assert(1.42 - (1.02 + BOSS_MAGNIFIER_TRANSITION_SECONDS) >= 0.2, 'magnifier清晰停留不得短于200ms');
+assert(1.42 - (1.02 + BOSS_MAGNIFIER_TRANSITION_SECONDS) <= 0.26, 'magnifier清晰停留不得超过260ms');
+assert(
+    BOSS_MAGNIFIER_RETURN_PREPARE_SECONDS >= 0.04 && BOSS_MAGNIFIER_RETURN_PREPARE_SECONDS <= 0.05,
+    'magnifier→check必须先收缩40～50ms',
+);
+assert(Math.abs(1.82 + BOSS_POSE_TRANSITION_SECONDS - INSPECTION_NORMAL_OUTCOME_SECONDS) < 1e-9, '结果反应前必须完成check→neutral');
+assert(Math.abs(INSPECTION_FINAL_POSE_SECONDS + BOSS_POSE_TRANSITION_SECONDS - 2.62) < 1e-9, '最终姿势单帧换图必须在2.62秒完成');
+assert(Math.abs(INSPECTION_NORMAL_TOTAL_SECONDS - 2.62 - 0.28) < 1e-9, 'pass/fail最终姿势必须清晰保持280ms');
+assert(Math.abs(INSPECTION_NORMAL_TOTAL_SECONDS + RESULT_MODAL_ENTRANCE_SECONDS - 3.08) < 1e-9, '结算弹窗必须在3.08秒稳定');
+assert(INSPECTION_NORMAL_TOTAL_SECONDS + RESULT_MODAL_ENTRANCE_SECONDS <= INSPECTION_MAX_TOTAL_SECONDS, '正常模式整体视觉稳定不得超过3.20秒');
+assert(Math.abs(INSPECTION_REDUCED_TOTAL_SECONDS + RESULT_MODAL_REDUCED_ENTRANCE_SECONDS - 2.63) < 1e-9, '减少动态检查仍在2.55秒结算，并仅淡入80ms');
 const fourStepTimeline = calculateInspectionAnimationTimeline(4, false);
 assert(
-    fourStepTimeline.progressUpdates.some((update) => update.atSeconds >= 1.05 && update.atSeconds <= 1.42),
+    fourStepTimeline.progressUpdates.some((update) => update.atSeconds >= 1.02 && update.atSeconds <= 1.42),
     'magnifier关键帧期间检查进度必须继续刷新',
 );
 

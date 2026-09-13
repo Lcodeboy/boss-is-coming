@@ -33,6 +33,7 @@ export class InspectionView extends Component {
     private _paused = false;
     private _reducedMotion = false;
     private _outcomeShown = false;
+    private _actorGeneration = 0;
 
     public initialize(viewport: FixedWidthViewport): void {
         // 根节点继续承担 BlockInputEvents，视觉遮罩由独立子节点渐变，避免连带淡入角色。
@@ -144,13 +145,19 @@ export class InspectionView extends Component {
                 tween(this._shadeOpacity).to(timeline.shadeSeconds, { opacity: 255 }).start();
             }
         }
-        this._bossActor?.play(this._reducedMotion);
+        const actorGeneration = this._bossActor?.play(this._reducedMotion) ?? 0;
+        this._actorGeneration = actorGeneration;
 
         for (const update of timeline.progressUpdates) {
             this.scheduleOnce(() => this.showProgress(update.index), update.atSeconds);
         }
         for (const update of timeline.poseUpdates) {
-            this.scheduleOnce(() => this._bossActor?.showPose(update.pose), update.atSeconds);
+            this.scheduleOnce(() => this._bossActor?.transitionPoseWithoutGhost(
+                update.pose,
+                update.durationSeconds,
+                update.transitionStyle,
+                actorGeneration,
+            ), update.atSeconds);
         }
         this.scheduleOnce(this.showOutcome, timeline.outcomeAtSeconds);
         if (!this._reducedMotion) {
@@ -207,7 +214,7 @@ export class InspectionView extends Component {
         this._outcomeShown = true;
         const failedCount = this._steps.filter((step) => !step.passed).length;
         const passed = failedCount === 0;
-        this._bossActor?.playResultReaction(passed, this._reducedMotion);
+        this._bossActor?.playResultReaction(passed, this._reducedMotion, this._actorGeneration);
         if (this._titleLabel !== null) {
             this._titleLabel.string = passed ? '检查完成' : '发现问题';
             this._titleLabel.color = passed ? Palette.success : Palette.warning;
@@ -248,7 +255,7 @@ export class InspectionView extends Component {
         if (this._onFinished === null || !this._outcomeShown || this._reducedMotion) {
             return;
         }
-        this._bossActor?.showFinalPose();
+        this._bossActor?.showFinalPose(this._actorGeneration);
     };
 
     private readonly finishInspection = (): void => {
@@ -262,6 +269,7 @@ export class InspectionView extends Component {
         this._outcomeShown = false;
         this.stopVisualTweens();
         this._bossActor?.reset();
+        this._actorGeneration = 0;
         this.node.active = false;
         finished();
     };
@@ -287,6 +295,7 @@ export class InspectionView extends Component {
         this._outcomeShown = false;
         this.stopVisualTweens();
         this._bossActor?.reset();
+        this._actorGeneration = 0;
     }
 
     private pauseVisualTweens(): void {

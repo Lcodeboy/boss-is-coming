@@ -14,9 +14,16 @@ import {
 } from 'cc';
 import {
     BOSS_HEAD_NECK_PIVOT_SOURCE_Y,
-    BOSS_MAGNIFIER_POP_SECONDS,
+    BOSS_MAGNIFIER_POP_OUT_SECONDS,
+    BOSS_MAGNIFIER_PREPARE_SECONDS,
+    BOSS_MAGNIFIER_RETURN_PREPARE_SECONDS,
+    BOSS_MAGNIFIER_SETTLE_SECONDS,
+    BOSS_POSE_SWAP_OPACITY,
+    BOSS_POSE_SWAP_OUT_SECONDS,
+    BOSS_POSE_TRANSITION_SECONDS,
     BodyReactionKeyframe,
     BossInspectionPose,
+    BossPoseTransitionStyle,
     FAILURE_BODY_REACTION,
     FAILURE_HEAD_REACTION,
     HeadReactionKeyframe,
@@ -30,17 +37,16 @@ const { ccclass } = _decorator;
 
 export const BOSS_INSPECTOR_HEAD_RESOURCE_PATH = 'characters/boss-inspector-head/spriteFrame';
 export const BOSS_INSPECTOR_BODY_RESOURCE_PATH = 'characters/boss-inspector-body/spriteFrame';
-
-type FullBossInspectionPose = Exclude<BossInspectionPose, 'neutral'>;
-
-export const BOSS_INSPECTION_POSE_RESOURCE_PATHS: Readonly<Record<FullBossInspectionPose, string>> = {
+export const BOSS_INSPECTION_POSE_RESOURCE_PATHS: Readonly<Record<BossInspectionPose, string>> = {
+    neutral: 'characters/boss-inspector/spriteFrame',
     check: 'characters/boss-inspector-check/spriteFrame',
     magnifier: 'characters/boss-inspector-magnifier/spriteFrame',
     pass: 'characters/boss-inspector-pass/spriteFrame',
     fail: 'characters/boss-inspector-fail/spriteFrame',
 };
 
-const FULL_BOSS_INSPECTION_POSES: readonly FullBossInspectionPose[] = [
+const BOSS_INSPECTION_POSES: readonly BossInspectionPose[] = [
+    'neutral',
     'check',
     'magnifier',
     'pass',
@@ -52,11 +58,18 @@ const HEAD_NECK_ANCHOR_Y = (SOURCE_HEIGHT - BOSS_HEAD_NECK_PIVOT_SOURCE_Y) / SOU
 type PoseLoadState = 'idle' | 'loading' | 'ready' | 'failed';
 type PoseLoadListener = (available: boolean) => void;
 
+interface PoseDisplay {
+    readonly node: Node;
+    readonly sprite: Sprite;
+    readonly opacity: UIOpacity;
+}
+
 let sharedPoseLoadState: PoseLoadState = 'idle';
-let sharedPoseFrames: Partial<Record<FullBossInspectionPose, SpriteFrame>> = {};
+let sharedPoseFrames: Partial<Record<BossInspectionPose, SpriteFrame>> = {};
+let sharedPoseFailureWarningShown = false;
 const sharedPoseLoadListeners = new Set<PoseLoadListener>();
 
-/** 四张完整姿势在同一 JS 会话中只发起一次加载；失败同样会被记忆并稳定回退。 */
+/** 五张正式状态图在同一 JS 会话中只加载一次；任一失败都会稳定回退到拆分中立层。 */
 function requestSharedPoseFrames(listener: PoseLoadListener): () => void {
     if (sharedPoseLoadState === 'ready') {
         listener(true);
@@ -70,9 +83,9 @@ function requestSharedPoseFrames(listener: PoseLoadListener): () => void {
     sharedPoseLoadListeners.add(listener);
     if (sharedPoseLoadState === 'idle') {
         sharedPoseLoadState = 'loading';
-        let remaining = FULL_BOSS_INSPECTION_POSES.length;
+        let remaining = BOSS_INSPECTION_POSES.length;
         let failed = false;
-        for (const pose of FULL_BOSS_INSPECTION_POSES) {
+        for (const pose of BOSS_INSPECTION_POSES) {
             resources.load(
                 BOSS_INSPECTION_POSE_RESOURCE_PATHS[pose],
                 SpriteFrame,
@@ -93,6 +106,10 @@ function requestSharedPoseFrames(listener: PoseLoadListener): () => void {
                     sharedPoseLoadState = failed ? 'failed' : 'ready';
                     if (failed) {
                         sharedPoseFrames = {};
+                        if (!sharedPoseFailureWarningShown) {
+                            sharedPoseFailureWarningShown = true;
+                            warn('Boss检查正式姿势资源加载失败，已回退到中立头身动画');
+                        }
                     }
                     const available = sharedPoseLoadState === 'ready';
                     for (const waitingListener of sharedPoseLoadListeners) {
@@ -109,7 +126,7 @@ function requestSharedPoseFrames(listener: PoseLoadListener): () => void {
     };
 }
 
-function getSharedPoseFrame(pose: FullBossInspectionPose): SpriteFrame | null {
+function getSharedPoseFrame(pose: BossInspectionPose): SpriteFrame | null {
     return sharedPoseLoadState === 'ready' ? sharedPoseFrames[pose] ?? null : null;
 }
 
@@ -117,13 +134,12 @@ function getSharedPoseFrame(pose: FullBossInspectionPose): SpriteFrame | null {
 export class BossInspectionActor extends Component {
     private _neutralLayer: Node | null = null;
     private _poseLayer: Node | null = null;
-    private _poseSpriteNode: Node | null = null;
-    private _poseSprite: Sprite | null = null;
+    private _poseCurrent: PoseDisplay | null = null;
+    private _poseNext: PoseDisplay | null = null;
     private _body: Node | null = null;
     private _head: Node | null = null;
     private _opacity: UIOpacity | null = null;
     private _neutralOpacity: UIOpacity | null = null;
-    private _poseOpacity: UIOpacity | null = null;
     private _layout: InspectionAnimationLayout | null = null;
     private _loadedLayerCount = 0;
     private _headNeutralY = 0;
@@ -132,16 +148,20 @@ export class BossInspectionActor extends Component {
     private _paused = false;
     private _entranceStarted = false;
     private _reactionStarted = false;
+    private _reactionComplete = false;
     private _pendingReaction: boolean | null = null;
+    private _pendingFinalPose = false;
     private _lastOutcomePassed: boolean | null = null;
+    private _currentPose: BossInspectionPose = 'neutral';
     private _requestedPose: BossInspectionPose = 'neutral';
-    private _shownCheckCount = 0;
+    private _poseTransitionActive = false;
     private _poseAssetsAvailable = false;
     private _poseLoadPending = false;
-    private _poseFailureWarned = false;
     private _cancelPosePreload: (() => void) | null = null;
     private _poseLoadGeneration = 0;
     private _runGeneration = 0;
+    private _transitionGeneration = 0;
+    private _reactionGeneration = 0;
     private _disposed = false;
 
     public initialize(layout: InspectionAnimationLayout): void {
@@ -182,85 +202,164 @@ export class BossInspectionActor extends Component {
             layout.actorWidth,
             layout.actorHeight,
         );
-        this._poseSpriteNode = createUiNode(
-            this._poseLayer,
-            'PoseSprite',
-            layout.actorWidth,
-            layout.actorHeight,
-        );
-        this._poseSprite = this._poseSpriteNode.addComponent(Sprite);
-        this._poseSprite.type = Sprite.Type.SIMPLE;
-        this._poseSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-        this._poseSprite.trim = false;
-
+        this._poseCurrent = this.createPoseDisplay('PoseCurrent', layout);
+        this._poseNext = this.createPoseDisplay('PoseNext', layout);
         this._neutralOpacity = this._neutralLayer.addComponent(UIOpacity);
-        this._poseOpacity = this._poseLayer.addComponent(UIOpacity);
         this._opacity = this.node.addComponent(UIOpacity);
         this._opacity.opacity = 0;
-        this.showNeutralLayer();
+        this.setStablePose('neutral');
         this.requestPoseAssets();
     }
 
-    public play(reducedMotion: boolean): void {
+    public play(reducedMotion: boolean): number {
         this.cancelPoseRequest();
         this.stopAllTweens();
         this._runGeneration += 1;
+        this._reactionGeneration += 1;
         this._activeRun = true;
         this._reducedMotion = reducedMotion;
         this._paused = false;
         this._entranceStarted = false;
         this._reactionStarted = false;
+        this._reactionComplete = false;
         this._pendingReaction = null;
+        this._pendingFinalPose = false;
         this._lastOutcomePassed = null;
         this._requestedPose = reducedMotion ? 'check' : 'neutral';
-        this._shownCheckCount = 0;
-        this.restoreNeutral(0);
+        this.restoreRoot(0);
+        this.setStablePose('neutral');
         this.requestPoseAssets();
 
         if (reducedMotion) {
-            // 减少动态效果只做静态姿势切换，不创建 Root、Body、Head 或 Pose Tween。
             this.restoreRoot(255);
-            this.applyRequestedPose(false);
+            this.applyRequestedPose();
         } else if (this.layersReady) {
             this.startEntrance();
         }
+        return this._runGeneration;
     }
 
-    public showPose(pose: Extract<BossInspectionPose, 'neutral' | 'check' | 'magnifier'>): void {
-        if (!this._activeRun || this._paused || this._reducedMotion) {
+    /** 先收缩当前姿势，再在同一回调内原子换图；任何时刻只有一套角色轮廓可见。 */
+    public transitionPoseWithoutGhost(
+        targetPose: BossInspectionPose,
+        durationSeconds: number,
+        transitionStyle: BossPoseTransitionStyle,
+        generationToken: number = this._runGeneration,
+    ): void {
+        if (
+            !this.canMutateRun(generationToken)
+            || this._reducedMotion
+            || durationSeconds < 0
+        ) {
             return;
         }
-        this._requestedPose = pose;
-        if (pose !== 'neutral') {
-            // 0.58 秒以后即使头身资源晚到，也不能补播已经错过的进场动画。
+
+        if (this._poseTransitionActive) {
+            const interruptedTarget = this._requestedPose;
+            this.setStablePose(interruptedTarget);
+        }
+        this._requestedPose = targetPose;
+        if (targetPose !== 'neutral') {
             this._entranceStarted = true;
             this.stopLayerTweens();
             this.restoreLayers();
+            if (!this._poseAssetsAvailable || getSharedPoseFrame(targetPose) === null) {
+                this.setStablePose('neutral');
+                return;
+            }
         }
-        const animate = pose === 'magnifier' || (pose === 'check' && this._shownCheckCount === 0);
-        if (pose === 'check') {
-            this._shownCheckCount += 1;
+        if (targetPose === this._currentPose || durationSeconds === 0) {
+            this.setStablePose(targetPose);
+            this.finishPendingReactionAfterNeutral(targetPose);
+            return;
         }
-        this.restoreRoot(255);
-        this.applyRequestedPose(animate);
+
+        const currentDisplay = this._poseCurrent;
+        const nextDisplay = this._poseNext;
+        const neutralLayer = this._neutralLayer;
+        const neutralOpacity = this._neutralOpacity;
+        if (currentDisplay === null || nextDisplay === null || neutralLayer === null || neutralOpacity === null) {
+            return;
+        }
+
+        this.cancelPoseTransition();
+        this._poseTransitionActive = true;
+        const transitionToken = this._transitionGeneration;
+        const swapOutSeconds = transitionStyle === 'checkToMagnifier'
+            ? BOSS_MAGNIFIER_PREPARE_SECONDS
+            : transitionStyle === 'magnifierToCheck'
+                ? BOSS_MAGNIFIER_RETURN_PREPARE_SECONDS
+                : Math.min(BOSS_POSE_SWAP_OUT_SECONDS, durationSeconds / 2);
+        const contractedScale = transitionStyle === 'checkToMagnifier'
+            || (targetPose === 'check' && this._currentPose === 'neutral')
+            ? 0.97
+            : 0.98;
+
+        if (targetPose !== 'neutral') {
+            const frame = getSharedPoseFrame(targetPose);
+            if (frame === null) {
+                this.setStablePose('neutral');
+                this.finishPendingReactionAfterNeutral('neutral');
+                return;
+            }
+            nextDisplay.sprite.spriteFrame = frame;
+            nextDisplay.node.setScale(contractedScale, contractedScale, 1);
+            nextDisplay.opacity.opacity = BOSS_POSE_SWAP_OPACITY;
+            nextDisplay.node.active = false;
+        }
+
+        const outgoingNode = this._currentPose === 'neutral'
+            ? neutralLayer
+            : currentDisplay.node;
+        const outgoingOpacity = this._currentPose === 'neutral'
+            ? neutralOpacity
+            : currentDisplay.opacity;
+        tween(outgoingOpacity)
+            .to(swapOutSeconds, { opacity: BOSS_POSE_SWAP_OPACITY }, { easing: 'quadInOut' })
+            .start();
+        tween(outgoingNode)
+            .to(swapOutSeconds, {
+                scale: new Vec3(contractedScale, contractedScale, 1),
+            }, { easing: 'quadInOut' })
+            .call(() => this.swapPoseInOneFrame(
+                targetPose,
+                durationSeconds,
+                swapOutSeconds,
+                contractedScale,
+                transitionStyle,
+                generationToken,
+                transitionToken,
+            ))
+            .start();
     }
 
-    public playResultReaction(passed: boolean, reducedMotion: boolean): void {
-        if (!this._activeRun || this._reactionStarted) {
+    public playResultReaction(
+        passed: boolean,
+        reducedMotion: boolean,
+        generationToken: number = this._runGeneration,
+    ): void {
+        if (!this.canMutateRun(generationToken) || this._reactionStarted) {
             return;
         }
         this._lastOutcomePassed = passed;
-        if (reducedMotion || this._reducedMotion || this._paused) {
+        if (reducedMotion || this._reducedMotion) {
             this._reactionStarted = true;
+            this._reactionComplete = true;
             this._pendingReaction = null;
             this.stopLayerTweens();
             this.restoreLayers();
             this._requestedPose = passed ? 'pass' : 'fail';
-            this.applyRequestedPose(false);
+            this.applyRequestedPose();
             return;
         }
         this._requestedPose = 'neutral';
-        this.applyRequestedPose(false);
+        if (this._poseTransitionActive) {
+            this._pendingReaction = passed;
+            return;
+        }
+        if (this._currentPose !== 'neutral') {
+            this.setStablePose('neutral');
+        }
         if (!this.layersReady) {
             this._pendingReaction = passed;
             return;
@@ -268,15 +367,23 @@ export class BossInspectionActor extends Component {
         this.startOutcomeReaction(passed);
     }
 
-    public showFinalPose(): void {
-        if (!this._activeRun || this._paused || this._reducedMotion || this._lastOutcomePassed === null) {
+    public showFinalPose(generationToken: number = this._runGeneration): void {
+        if (
+            !this.canMutateRun(generationToken)
+            || this._reducedMotion
+            || this._lastOutcomePassed === null
+        ) {
             return;
         }
-        this._pendingReaction = null;
-        this.stopLayerTweens();
-        this.restoreLayers();
-        this._requestedPose = this._lastOutcomePassed ? 'pass' : 'fail';
-        this.applyRequestedPose(false);
+        if (!this._reactionStarted) {
+            this._pendingReaction = null;
+            this._reactionComplete = true;
+        }
+        if (!this._reactionComplete) {
+            this._pendingFinalPose = true;
+            return;
+        }
+        this.startFinalPoseTransition(generationToken);
     }
 
     public setPaused(paused: boolean): void {
@@ -285,42 +392,48 @@ export class BossInspectionActor extends Component {
         }
         this._paused = paused;
         if (!paused) {
-            if (this._activeRun) {
-                this.restoreRoot(255);
-                this.applyRequestedPose(false);
+            if (!this._activeRun) {
+                return;
             }
+            this.restoreRoot(255);
+            if (this._pendingFinalPose && this._lastOutcomePassed !== null) {
+                this._pendingFinalPose = false;
+                this._requestedPose = this._lastOutcomePassed ? 'pass' : 'fail';
+            }
+            this.applyRequestedPose();
             return;
         }
 
-        // 进入后台时主动停止而不是保留 Tween；恢复后只呈现当前阶段的稳定姿势。
-        const visibleOpacity = this._activeRun ? 255 : 0;
         if (this._activeRun) {
             this._entranceStarted = true;
         }
         this._pendingReaction = null;
+        if (this._reactionStarted) {
+            this._reactionComplete = true;
+        }
         this.stopAllTweens();
-        this.restoreRoot(visibleOpacity);
+        this.restoreRoot(this._activeRun ? 255 : 0);
         this.restoreLayers();
-        this.showNeutralLayer();
+        this.setStablePose('neutral');
     }
 
     public reset(): void {
         this._runGeneration += 1;
+        this._reactionGeneration += 1;
         this.cancelPoseRequest();
         this._activeRun = false;
         this._reducedMotion = false;
         this._paused = false;
         this._entranceStarted = false;
         this._reactionStarted = false;
+        this._reactionComplete = false;
         this._pendingReaction = null;
+        this._pendingFinalPose = false;
         this._lastOutcomePassed = null;
         this._requestedPose = 'neutral';
-        this._shownCheckCount = 0;
         this.stopAllTweens();
-        this.restoreNeutral(0);
-        if (this._poseSprite !== null) {
-            this._poseSprite.spriteFrame = null;
-        }
+        this.restoreRoot(0);
+        this.setStablePose('neutral');
     }
 
     protected override onDisable(): void {
@@ -332,18 +445,32 @@ export class BossInspectionActor extends Component {
         this.reset();
         this._neutralLayer = null;
         this._poseLayer = null;
-        this._poseSpriteNode = null;
-        this._poseSprite = null;
+        this._poseCurrent = null;
+        this._poseNext = null;
         this._body = null;
         this._head = null;
         this._opacity = null;
         this._neutralOpacity = null;
-        this._poseOpacity = null;
         this._layout = null;
     }
 
     private get layersReady(): boolean {
         return this._loadedLayerCount === 2;
+    }
+
+    private createPoseDisplay(name: string, layout: InspectionAnimationLayout): PoseDisplay {
+        if (this._poseLayer === null) {
+            throw new Error('PoseLayer 尚未初始化');
+        }
+        const node = createUiNode(this._poseLayer, name, layout.actorWidth, layout.actorHeight);
+        const sprite = node.addComponent(Sprite);
+        sprite.type = Sprite.Type.SIMPLE;
+        sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        sprite.trim = false;
+        const opacity = node.addComponent(UIOpacity);
+        opacity.opacity = 0;
+        node.active = false;
+        return { node, sprite, opacity };
     }
 
     private attachLayer(node: Node, path: string): void {
@@ -386,12 +513,8 @@ export class BossInspectionActor extends Component {
             this._poseLoadPending = false;
             this._cancelPosePreload = null;
             this._poseAssetsAvailable = available;
-            if (!available && !this._poseFailureWarned) {
-                this._poseFailureWarned = true;
-                warn('Boss检查完整姿势资源加载失败，已回退到中立头身动画');
-            }
-            if (this._activeRun && !this._paused) {
-                this.applyRequestedPose(false);
+            if (this._activeRun && !this._paused && !this._poseTransitionActive) {
+                this.applyRequestedPose();
             }
         });
         if (this._poseLoadPending) {
@@ -414,20 +537,20 @@ export class BossInspectionActor extends Component {
         }
         if (this._reducedMotion) {
             this.restoreRoot(255);
-            this.applyRequestedPose(false);
+            this.applyRequestedPose();
             return;
         }
-        if (this._pendingReaction !== null) {
+        if (this._pendingReaction !== null && !this._poseTransitionActive) {
             const passed = this._pendingReaction;
             this._pendingReaction = null;
             this.restoreRoot(255);
-            this.showNeutralLayer();
+            this.setStablePose('neutral');
             this.startOutcomeReaction(passed);
             return;
         }
         if (this._requestedPose !== 'neutral' || this._entranceStarted) {
             this.restoreRoot(255);
-            this.applyRequestedPose(false);
+            this.applyRequestedPose();
             return;
         }
         this.startEntrance();
@@ -451,7 +574,7 @@ export class BossInspectionActor extends Component {
         }
         this._entranceStarted = true;
         this.stopAllTweens();
-        this.showNeutralLayer();
+        this.setStablePose('neutral');
 
         const neutralRootPosition = new Vec3(layout.actorX, layout.actorY);
         this.node.setPosition(layout.actorEntryX, layout.actorY);
@@ -512,22 +635,56 @@ export class BossInspectionActor extends Component {
             return;
         }
         this._reactionStarted = true;
+        this._reactionComplete = false;
         this._pendingReaction = null;
         this._requestedPose = 'neutral';
         this.stopLayerTweens();
-        this.showNeutralLayer();
+        this.setStablePose('neutral');
+        const runGeneration = this._runGeneration;
+        const reactionGeneration = ++this._reactionGeneration;
 
         let headTween = tween(head);
         for (const frame of passed ? SUCCESS_HEAD_REACTION : FAILURE_HEAD_REACTION) {
             headTween = this.appendHeadFrame(headTween, frame);
         }
-        headTween.start();
+        headTween
+            .call(() => this.handleReactionComplete(runGeneration, reactionGeneration))
+            .start();
 
         let bodyTween = tween(body);
         for (const frame of passed ? SUCCESS_BODY_REACTION : FAILURE_BODY_REACTION) {
             bodyTween = this.appendBodyFrame(bodyTween, frame);
         }
         bodyTween.start();
+    }
+
+    private handleReactionComplete(runGeneration: number, reactionGeneration: number): void {
+        if (
+            !this.canMutateRun(runGeneration)
+            || reactionGeneration !== this._reactionGeneration
+        ) {
+            return;
+        }
+        this.restoreLayers();
+        this._reactionComplete = true;
+        if (this._pendingFinalPose) {
+            this.startFinalPoseTransition(runGeneration);
+        }
+    }
+
+    private startFinalPoseTransition(generationToken: number): void {
+        if (this._lastOutcomePassed === null || !this.canMutateRun(generationToken)) {
+            return;
+        }
+        this._pendingFinalPose = false;
+        this.stopLayerTweens();
+        this.restoreLayers();
+        this.transitionPoseWithoutGhost(
+            this._lastOutcomePassed ? 'pass' : 'fail',
+            BOSS_POSE_TRANSITION_SECONDS,
+            'singleSwap',
+            generationToken,
+        );
     }
 
     private appendHeadFrame(sequence: Tween<Node>, frame: HeadReactionKeyframe): Tween<Node> {
@@ -546,66 +703,201 @@ export class BossInspectionActor extends Component {
         }, { easing: frame.easing });
     }
 
-    private applyRequestedPose(animate: boolean): void {
-        if (this._requestedPose === 'neutral' || !this._poseAssetsAvailable) {
-            this.showNeutralLayer();
+    private swapPoseInOneFrame(
+        targetPose: BossInspectionPose,
+        durationSeconds: number,
+        swapOutSeconds: number,
+        contractedScale: number,
+        transitionStyle: BossPoseTransitionStyle,
+        runGeneration: number,
+        transitionGeneration: number,
+    ): void {
+        if (!this.canContinueTransition(runGeneration, transitionGeneration)) {
             return;
         }
-        const frame = getSharedPoseFrame(this._requestedPose);
-        if (frame === null || this._poseSprite === null || this._poseLayer === null) {
-            this.showNeutralLayer();
+        const currentDisplay = this._poseCurrent;
+        const nextDisplay = this._poseNext;
+        const neutralLayer = this._neutralLayer;
+        const neutralOpacity = this._neutralOpacity;
+        if (
+            currentDisplay === null
+            || nextDisplay === null
+            || neutralOpacity === null
+            || neutralLayer === null
+        ) {
             return;
         }
 
-        this.stopPresentationTweens();
-        this._poseSprite.spriteFrame = frame;
-        if (this._neutralLayer !== null) {
-            this._neutralLayer.active = false;
-        }
-        this._poseLayer.active = true;
-        if (this._neutralOpacity !== null) {
-            this._neutralOpacity.opacity = 0;
-        }
-        if (this._poseOpacity !== null) {
-            this._poseOpacity.opacity = 255;
-        }
-        this._poseLayer.setScale(Vec3.ONE);
+        if (targetPose === 'neutral') {
+            this.restoreLayers();
+            neutralLayer.setScale(contractedScale, contractedScale, 1);
+            neutralOpacity.opacity = BOSS_POSE_SWAP_OPACITY;
 
-        if (!animate || this._reducedMotion) {
+            // 同一逻辑帧内先关闭旧完整姿势，再启用已复位的NeutralLayer。
+            currentDisplay.node.active = false;
+            if (this._poseLayer !== null) {
+                this._poseLayer.active = false;
+            }
+            neutralLayer.active = true;
+        } else {
+            const frame = getSharedPoseFrame(targetPose);
+            if (frame === null) {
+                this.setStablePose('neutral');
+                this.finishPendingReactionAfterNeutral('neutral');
+                return;
+            }
+
+            nextDisplay.sprite.spriteFrame = frame;
+            nextDisplay.node.setScale(contractedScale, contractedScale, 1);
+            nextDisplay.opacity.opacity = BOSS_POSE_SWAP_OPACITY;
+
+            // 旧层与新层不会在任何渲染帧同时可见。
+            if (this._currentPose === 'neutral') {
+                neutralLayer.active = false;
+            } else {
+                currentDisplay.node.active = false;
+            }
+            if (this._poseLayer !== null) {
+                this._poseLayer.active = true;
+            }
+            nextDisplay.node.active = true;
+            this._poseCurrent = nextDisplay;
+            this._poseNext = currentDisplay;
+        }
+
+        this._currentPose = targetPose;
+        const incomingNode = targetPose === 'neutral'
+            ? neutralLayer
+            : this._poseCurrent?.node ?? null;
+        const incomingOpacity = targetPose === 'neutral'
+            ? neutralOpacity
+            : this._poseCurrent?.opacity ?? null;
+        if (incomingNode === null || incomingOpacity === null) {
             return;
         }
-        if (this._requestedPose === 'magnifier') {
-            this._poseLayer.setScale(0.96, 0.96, 1);
-            tween(this._poseLayer)
-                .to(BOSS_MAGNIFIER_POP_SECONDS / 2, { scale: new Vec3(1.02, 1.02, 1) }, { easing: 'backOut' })
-                .to(BOSS_MAGNIFIER_POP_SECONDS / 2, { scale: Vec3.ONE }, { easing: 'quadOut' })
+
+        const completeTransition = (): void => {
+            this.finishPoseTransitionWithoutGhost(
+                targetPose,
+                runGeneration,
+                transitionGeneration,
+            );
+        };
+        if (transitionStyle === 'checkToMagnifier') {
+            tween(incomingOpacity)
+                .to(BOSS_MAGNIFIER_POP_OUT_SECONDS, { opacity: 255 }, { easing: 'quadOut' })
                 .start();
-        } else if (this._requestedPose === 'check') {
-            this._poseLayer.setScale(0.985, 0.985, 1);
-            tween(this._poseLayer)
-                .to(0.08, { scale: Vec3.ONE }, { easing: 'backOut' })
+            tween(incomingNode)
+                .to(BOSS_MAGNIFIER_POP_OUT_SECONDS, {
+                    scale: new Vec3(1.025, 1.025, 1),
+                }, { easing: 'quadOut' })
+                .to(BOSS_MAGNIFIER_SETTLE_SECONDS, { scale: Vec3.ONE }, { easing: 'quadOut' })
+                .call(completeTransition)
+                .start();
+        } else {
+            const recoverySeconds = Math.max(0.01, durationSeconds - swapOutSeconds);
+            tween(incomingOpacity)
+                .to(recoverySeconds, { opacity: 255 }, { easing: 'quadOut' })
+                .start();
+            tween(incomingNode)
+                .to(recoverySeconds, { scale: Vec3.ONE }, { easing: 'quadOut' })
+                .call(completeTransition)
                 .start();
         }
     }
 
-    private showNeutralLayer(): void {
-        this.stopPresentationTweens();
+    private finishPoseTransitionWithoutGhost(
+        targetPose: BossInspectionPose,
+        runGeneration: number,
+        transitionGeneration: number,
+    ): void {
+        if (!this.canContinueTransition(runGeneration, transitionGeneration)) {
+            return;
+        }
+        const currentDisplay = this._poseCurrent;
+        const nextDisplay = this._poseNext;
+        const neutralLayer = this._neutralLayer;
+        if (currentDisplay === null || nextDisplay === null || neutralLayer === null) {
+            return;
+        }
+
+        if (targetPose === 'neutral') {
+            neutralLayer.setScale(Vec3.ONE);
+            if (this._neutralOpacity !== null) {
+                this._neutralOpacity.opacity = 255;
+            }
+            this.hidePoseDisplay(currentDisplay);
+            this.hidePoseDisplay(nextDisplay);
+            if (this._poseLayer !== null) {
+                this._poseLayer.active = false;
+            }
+        } else {
+            currentDisplay.node.setScale(Vec3.ONE);
+            currentDisplay.opacity.opacity = 255;
+            currentDisplay.node.active = true;
+            this.hidePoseDisplay(nextDisplay);
+            neutralLayer.active = false;
+        }
+        this._poseTransitionActive = false;
+        this.finishPendingReactionAfterNeutral(targetPose);
+    }
+
+    private finishPendingReactionAfterNeutral(pose: BossInspectionPose): void {
+        if (pose !== 'neutral' || this._pendingReaction === null || !this.layersReady) {
+            return;
+        }
+        const passed = this._pendingReaction;
+        this._pendingReaction = null;
+        this.startOutcomeReaction(passed);
+    }
+
+    private applyRequestedPose(): void {
+        if (this._requestedPose !== 'neutral' && !this._poseAssetsAvailable) {
+            this.setStablePose('neutral');
+            return;
+        }
+        this.setStablePose(this._requestedPose);
+    }
+
+    private setStablePose(pose: BossInspectionPose): void {
+        this.cancelPoseTransition();
         this.restoreLayers();
-        if (this._poseLayer !== null) {
-            this._poseLayer.setScale(Vec3.ONE);
-            this._poseLayer.active = false;
-        }
-        if (this._poseOpacity !== null) {
-            this._poseOpacity.opacity = 0;
-        }
+        const currentDisplay = this._poseCurrent;
+        const nextDisplay = this._poseNext;
+        const frame = pose === 'neutral' ? null : getSharedPoseFrame(pose);
+        const stablePose = pose === 'neutral' || frame !== null ? pose : 'neutral';
         if (this._neutralLayer !== null) {
             this._neutralLayer.setScale(Vec3.ONE);
             this._neutralLayer.angle = 0;
-            this._neutralLayer.active = true;
+            this._neutralLayer.active = stablePose === 'neutral';
         }
         if (this._neutralOpacity !== null) {
             this._neutralOpacity.opacity = 255;
         }
+        if (currentDisplay !== null && stablePose !== 'neutral' && frame !== null) {
+            currentDisplay.sprite.spriteFrame = frame;
+            currentDisplay.node.setScale(Vec3.ONE);
+            currentDisplay.opacity.opacity = 255;
+            currentDisplay.node.active = true;
+        } else if (currentDisplay !== null) {
+            this.hidePoseDisplay(currentDisplay);
+        }
+        if (nextDisplay !== null) {
+            this.hidePoseDisplay(nextDisplay);
+        }
+        if (this._poseLayer !== null) {
+            this._poseLayer.active = stablePose !== 'neutral';
+        }
+        this._currentPose = stablePose;
+    }
+
+    private hidePoseDisplay(display: PoseDisplay): void {
+        Tween.stopAllByTarget(display.node);
+        Tween.stopAllByTarget(display.opacity);
+        display.node.setScale(Vec3.ONE);
+        display.opacity.opacity = 0;
+        display.sprite.spriteFrame = null;
+        display.node.active = false;
     }
 
     private restoreLayers(): void {
@@ -632,9 +924,18 @@ export class BossInspectionActor extends Component {
         }
     }
 
-    private restoreNeutral(opacity: number): void {
-        this.restoreRoot(opacity);
-        this.showNeutralLayer();
+    private canMutateRun(generationToken: number): boolean {
+        return this._activeRun
+            && !this._paused
+            && !this._disposed
+            && generationToken === this._runGeneration
+            && isValid(this.node, true);
+    }
+
+    private canContinueTransition(runGeneration: number, transitionGeneration: number): boolean {
+        return this.canMutateRun(runGeneration)
+            && transitionGeneration === this._transitionGeneration
+            && this._poseTransitionActive;
     }
 
     private stopLayerTweens(): void {
@@ -646,16 +947,19 @@ export class BossInspectionActor extends Component {
         }
     }
 
-    private stopPresentationTweens(): void {
-        for (const target of [
-            this._neutralLayer,
-            this._poseLayer,
-            this._poseSpriteNode,
-            this._neutralOpacity,
-            this._poseOpacity,
-        ]) {
-            if (target !== null) {
-                Tween.stopAllByTarget(target);
+    private cancelPoseTransition(): void {
+        this._transitionGeneration += 1;
+        this._poseTransitionActive = false;
+        if (this._neutralLayer !== null) {
+            Tween.stopAllByTarget(this._neutralLayer);
+        }
+        if (this._neutralOpacity !== null) {
+            Tween.stopAllByTarget(this._neutralOpacity);
+        }
+        for (const display of [this._poseCurrent, this._poseNext]) {
+            if (display !== null) {
+                Tween.stopAllByTarget(display.node);
+                Tween.stopAllByTarget(display.opacity);
             }
         }
     }
@@ -663,7 +967,10 @@ export class BossInspectionActor extends Component {
     private stopAllTweens(): void {
         Tween.stopAllByTarget(this.node);
         this.stopLayerTweens();
-        this.stopPresentationTweens();
+        this.cancelPoseTransition();
+        if (this._poseLayer !== null) {
+            Tween.stopAllByTarget(this._poseLayer);
+        }
         if (this._opacity !== null) {
             Tween.stopAllByTarget(this._opacity);
         }
