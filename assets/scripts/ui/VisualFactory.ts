@@ -1,4 +1,4 @@
-import { Color, Graphics, Label, Node } from 'cc';
+import { Color, Graphics, Label, Node, Sprite, SpriteFrame } from 'cc';
 import {
     calculateStartPageLayout,
     FixedWidthViewport,
@@ -14,6 +14,28 @@ export interface ThemedButton {
     readonly node: Node;
     readonly label: Label;
     readonly button: ActionButton;
+}
+
+export interface PassiveSpriteVisual {
+    readonly node: Node;
+    readonly sprite: Sprite;
+}
+
+/** 创建不注册触摸事件的纯视觉 Sprite；逻辑与碰撞始终留在父节点。 */
+export function createPassiveSprite(
+    parent: Node,
+    name: string,
+    width: number,
+    height: number,
+    spriteFrame: SpriteFrame,
+): PassiveSpriteVisual {
+    const node = createUiNode(parent, name, width, height);
+    const sprite = node.addComponent(Sprite);
+    sprite.type = Sprite.Type.SIMPLE;
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    sprite.trim = false;
+    sprite.spriteFrame = spriteFrame;
+    return { node, sprite };
 }
 
 /** 游戏进行页使用的紧凑返回按钮；80设计像素触摸区内绘制30像素箭头。 */

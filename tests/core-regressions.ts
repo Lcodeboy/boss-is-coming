@@ -322,6 +322,7 @@ for (let index = 0; index < ratios.length; index += 1) {
     const backgroundLayout = calculateFullBleedBackgroundLayout(viewport);
     const inspectionLayout = calculateInspectionAnimationLayout(viewport);
     const coverLayout = calculateCoverLayout(backgroundLayout.width, backgroundLayout.height, 750, 1334);
+    const officeCoverLayout = calculateCoverLayout(backgroundLayout.width, backgroundLayout.height, 860, 1828);
     assert(
         backgroundLayout.x === 0
         && backgroundLayout.y === 0
@@ -337,6 +338,15 @@ for (let index = 0; index < ratios.length; index += 1) {
     assert(
         Math.abs(coverLayout.renderedWidth / coverLayout.renderedHeight - 750 / 1334) < 0.0001,
         `${ratio.name} cover 背景不得非等比拉伸`,
+    );
+    assert(
+        officeCoverLayout.renderedWidth + 0.01 >= backgroundLayout.width
+        && officeCoverLayout.renderedHeight + 0.01 >= backgroundLayout.height,
+        `${ratio.name} 实习期办公室背景必须以Cover铺满，不得出现黑边`,
+    );
+    assert(
+        Math.abs(officeCoverLayout.renderedWidth / officeCoverLayout.renderedHeight - 860 / 1828) < 0.0001,
+        `${ratio.name} 实习期办公室背景不得拉伸`,
     );
     const inspectionActorRect = centeredRect(
         inspectionLayout.actorX,

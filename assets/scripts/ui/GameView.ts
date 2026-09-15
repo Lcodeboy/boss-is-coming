@@ -6,10 +6,14 @@ import {
     HorizontalTextAlignment,
     Label,
     Node,
+    Sprite,
     SpriteFrame,
+    UITransform,
+    Vec3,
     Tween,
     tween,
     UIOpacity,
+    isValid,
     sys,
     view,
 } from 'cc';
@@ -66,6 +70,19 @@ import {
 import { ThemeButtonVariant } from './VisualTheme';
 import { ActionButton } from './ActionButton';
 import { SettingsView } from './SettingsView';
+import {
+    DEFAULT_OFFICE_THEME_ID,
+    getOfficeTheme,
+    OfficeThemeId,
+    OfficeBounds,
+    OfficeDeskGeometry,
+    OfficeDeskLayout,
+    OfficeThemeAssetKey,
+    solveOfficeDeskLayout,
+    unionOfficeBounds,
+} from './OfficeTheme';
+import { LoadedOfficeThemeAssets, requestOfficeThemeAssets } from './OfficeThemeAssets';
+import { ITEM_VISUAL_TOP_OVERFLOW } from './VisualMetrics';
 
 const { ccclass } = _decorator;
 
@@ -115,6 +132,15 @@ export class GameView extends Component {
     private _gameBackground: FullBleedBackground | null = null;
     private _homeBackground: FullBleedBackground | null = null;
     private _levelSelectBackground: FullBleedBackground | null = null;
+    private readonly _officeThemeId: OfficeThemeId = DEFAULT_OFFICE_THEME_ID;
+    private _officeThemeAssets: LoadedOfficeThemeAssets | null = null;
+    private _cancelOfficeThemeLoad: (() => void) | null = null;
+    private _officeThemeLoadGeneration = 0;
+    private readonly _gameBackgroundAccentNodes: Node[] = [];
+    private readonly _vectorOfficeNodes: Node[] = [];
+    private _officeDeskContext: { level: LevelConfig; content: Node } | null = null;
+    private _officeDeskLayout: OfficeDeskLayout | null = null;
+    private _officeDeskGeometry: OfficeDeskGeometry | null = null;
 
     public initialize(
         levels: readonly LevelConfig[],
@@ -153,6 +179,7 @@ export class GameView extends Component {
         this._actions = actions;
         this._audio = audio;
         this.buildBackground();
+        this.requestDefaultOfficeTheme();
         this.buildStartOverlay();
         this.buildLevelSelect(levels);
         this.buildPersistentOverlays();
@@ -321,6 +348,7 @@ export class GameView extends Component {
             Palette.backgroundDeep,
             0,
         );
+        this._gameBackgroundAccentNodes.push(topAccent);
         topAccent.setPosition(0, this._viewport.height / 2 - accentHeight / 2);
         const floorLine = createRoundedPanel(
             this._gameRoot,
@@ -330,6 +358,7 @@ export class GameView extends Component {
             new Color(112, 135, 143, 120),
             0,
         );
+        this._gameBackgroundAccentNodes.push(floorLine);
         floorLine.setPosition(0, this._viewport.safeBottom + 76);
     }
 
@@ -513,16 +542,26 @@ export class GameView extends Component {
             DESIGN_WIDTH,
             workspaceLayout.floorHeight,
         );
+        this._vectorOfficeNodes.push(floor);
         floor.setPosition(0, workspaceLayout.floorY);
         if (formal) {
-            paintFormalOfficeFloor(floor);
+            if (this._officeThemeAssets === null) {
+                paintFormalOfficeFloor(floor);
+            } else {
+                floor.active = false;
+            }
             const workspaceDepth = createUiNode(
                 workspace,
                 'WorkspaceDepth',
                 DESIGN_WIDTH,
                 layout.workspaceHeight,
             );
-            paintWorkspaceDepth(workspaceDepth, workspaceLayout);
+            this._vectorOfficeNodes.push(workspaceDepth);
+            if (this._officeThemeAssets === null) {
+                paintWorkspaceDepth(workspaceDepth, workspaceLayout);
+            } else {
+                workspaceDepth.active = false;
+            }
         }
         const targetBand = createUiNode(
             workspace,
@@ -533,8 +572,8 @@ export class GameView extends Component {
         targetBand.setPosition(0, workspaceLayout.targetBandY);
         paintStorageArea(targetBand);
         const targetBandTitle = createLabel(targetBand, 'TargetBandTitle', formal ? '快速收纳区' : '收纳处理区', 190, 34, {
-            fontSize: 19,
-            color: Palette.mutedLight,
+            fontSize: formal ? 21 : 19,
+            color: formal ? new Color(226, 235, 238, 255) : Palette.mutedLight,
             bold: true,
             wrap: false,
         });
@@ -562,7 +601,12 @@ export class GameView extends Component {
         );
         desk.setPosition(0, WORKSPACE_DESK_BASELINE_Y);
         if (formal) {
-            paintFormalDesk(desk);
+            this._vectorOfficeNodes.push(desk);
+            if (this._officeThemeAssets === null) {
+                paintFormalDesk(desk);
+            } else {
+                desk.active = false;
+            }
         }
         const deskTitle = createLabel(
             workspaceContent,
@@ -588,7 +632,7 @@ export class GameView extends Component {
                 zoneConfig.size.height,
             );
             const zone = zoneNode.addComponent(DropZone);
-            zone.configure(zoneConfig, formal);
+            zone.configure(zoneConfig, formal, this._officeThemeAssets);
             this._dropZones.set(zoneConfig.id, zone);
         }
 
@@ -609,10 +653,18 @@ export class GameView extends Component {
                 (message, success) => this.showToast(message, success),
                 this._audio,
                 formal,
+                this._officeThemeAssets,
+                itemConfig.initialPosition,
+                getOfficeTheme(this._officeThemeId).levelLayouts[level.id] !== undefined,
             );
+            if (this._officeThemeAssets !== null) {
+                item.setOfficeThemeAssets(this._officeThemeAssets);
+            }
             this._workItems.set(itemConfig.id, item);
             item.setAvailable(snapshot.activeItemIds.indexOf(itemConfig.id) >= 0);
         }
+        this._officeDeskContext = { level, content: workspaceContent };
+        this.applyOfficeDeskLayout();
 
         for (const progress of snapshot.zoneProgress) {
             this._dropZones.get(progress.zoneId)?.setProgress(progress.completed, progress.total);
@@ -761,6 +813,10 @@ export class GameView extends Component {
     }
 
     private teardownLevel(): void {
+        this._officeDeskContext = null;
+        this._officeDeskLayout = null;
+        this._officeDeskGeometry = null;
+        this._gameBackground?.setArtworkFraming(null);
         this.stopEdgePulse();
         this._edgePulse = null;
         this._eventMessageView?.cancel();
@@ -776,6 +832,7 @@ export class GameView extends Component {
         this._taskView = null;
         this._workItems.clear();
         this._dropZones.clear();
+        this._vectorOfficeNodes.length = 0;
         this._formalLevel = false;
     }
 
@@ -795,7 +852,22 @@ export class GameView extends Component {
         }
     }
 
+    protected override onEnable(): void {
+        if (this._gameRoot !== null && this._officeThemeAssets === null && this._cancelOfficeThemeLoad === null) {
+            this.requestDefaultOfficeTheme();
+        }
+    }
+
+    protected override onDisable(): void {
+        this._officeThemeLoadGeneration += 1;
+        this._cancelOfficeThemeLoad?.();
+        this._cancelOfficeThemeLoad = null;
+    }
+
     protected override onDestroy(): void {
+        this._officeThemeLoadGeneration += 1;
+        this._cancelOfficeThemeLoad?.();
+        this._cancelOfficeThemeLoad = null;
         if (this._audio !== null) { this._audio.onBeat = null; }
         this._inspectionView?.cancel();
         this.stopToastTween();
@@ -803,6 +875,149 @@ export class GameView extends Component {
         this._inspectionView = null;
         this._actions = null;
         this._audio = null;
+    }
+
+    private requestDefaultOfficeTheme(): void {
+        this._officeThemeLoadGeneration += 1;
+        const generation = this._officeThemeLoadGeneration;
+        this._cancelOfficeThemeLoad?.();
+        this._cancelOfficeThemeLoad = requestOfficeThemeAssets(this._officeThemeId, (assets) => {
+            if (generation !== this._officeThemeLoadGeneration || !isValid(this.node, true)) {
+                return;
+            }
+            this._cancelOfficeThemeLoad = null;
+            this.applyOfficeThemeAssets(assets);
+        });
+    }
+
+    private applyOfficeThemeAssets(assets: LoadedOfficeThemeAssets | null): void {
+        this._officeThemeAssets = assets;
+        const enabled = assets !== null;
+        this._gameBackground?.setSpriteFrame(
+            assets?.frames[assets.theme.backgroundAsset] ?? null,
+        );
+        for (const node of this._gameBackgroundAccentNodes) {
+            node.active = !enabled;
+        }
+        for (const node of this._vectorOfficeNodes) {
+            node.active = !enabled;
+        }
+        for (const item of this._workItems.values()) {
+            item.setOfficeThemeAssets(assets);
+        }
+        for (const zone of this._dropZones.values()) {
+            zone.setOfficeThemeAssets(assets);
+        }
+        this.applyOfficeDeskLayout();
+    }
+
+    /** Resolve one immutable initial/home layout after theme artwork exists. */
+    private applyOfficeDeskLayout(): void {
+        const context = this._officeDeskContext;
+        const assets = this._officeThemeAssets;
+        const background = this._gameBackground;
+        if (context === null || assets === null || background === null || this._officeDeskLayout !== null) { return; }
+        const layout = assets.theme.levelLayouts[context.level.id];
+        if (layout === undefined) { return; }
+        // An unusually late asset callback must never teleport a pressed,
+        // returned or completed item. The next entry/retry will use the cache.
+        if (Array.from(this._workItems.values()).some(item => !item.canApplyInitialLayout)) { return; }
+        const space = context.content.getComponent(UITransform);
+        if (space === null) { return; }
+        const visibleWithin = (node: Node, root: Node): boolean => {
+            for (let current: Node | null = node; current !== null && current !== root; current = current.parent) {
+                if (!current.active) { return false; }
+            }
+            return true;
+        };
+        const rectangle = (transform: UITransform, left: number, right: number, bottom: number, top: number): OfficeBounds => {
+            const points = [[left, bottom], [left, top], [right, bottom], [right, top]].map(([x, y]) =>
+                space.convertToNodeSpaceAR(transform.convertToWorldSpaceAR(new Vec3(x, y, 0))));
+            return { left: Math.min(...points.map(p => p.x)), right: Math.max(...points.map(p => p.x)),
+                bottom: Math.min(...points.map(p => p.y)), top: Math.max(...points.map(p => p.y)) };
+        };
+        const touchBounds = (root: Node): OfficeBounds => {
+            const t = root.getComponent(UITransform);
+            if (t === null) { throw new Error('Office layout: missing touch transform'); }
+            return rectangle(t, -t.width * t.anchorX, t.width * (1 - t.anchorX), -t.height * t.anchorY, t.height * (1 - t.anchorY));
+        };
+        const measure = (root: Node): { visuals: OfficeBounds[]; supports: OfficeBounds[] } => {
+            const visuals: OfficeBounds[] = [];
+            const supports: OfficeBounds[] = [];
+            let themedSprites = 0;
+            for (const sprite of root.getComponentsInChildren(Sprite)) {
+                if (!visibleWithin(sprite.node, root)) { continue; }
+                const key = (Object.keys(assets.frames) as OfficeThemeAssetKey[]).find(k => assets.frames[k] === sprite.spriteFrame);
+                const t = sprite.node.getComponent(UITransform);
+                if (key === undefined || t === null) { continue; }
+                const spec = assets.theme.assets[key];
+                themedSprites += 1;
+                const px = (x: number): number => (x / spec.width - t.anchorX) * t.width;
+                const py = (y: number): number => (1 - y / spec.height - t.anchorY) * t.height;
+                visuals.push(rectangle(t, px(spec.visibleAlphaLeft ?? 0), px(spec.visibleAlphaRight ?? spec.width),
+                    py(spec.visibleAlphaBottom ?? spec.height), py(spec.visibleAlphaTop ?? 0)));
+                if (spec.supportLeft !== undefined && spec.supportRight !== undefined) {
+                    const y = py(spec.visibleAlphaBottom ?? spec.height);
+                    supports.push(rectangle(t, px(spec.supportLeft), px(spec.supportRight), y, y));
+                }
+            }
+            for (const label of root.getComponentsInChildren(Label)) {
+                if (!label.string || !visibleWithin(label.node, root)) { continue; }
+                // Public Label/UITransform bounds reserve all possible glyphs
+                // (SHRINK overflow), also on mini-game platforms without DOM.
+                // Browser acceptance separately measures actual glyph Alpha.
+                visuals.push(touchBounds(label.node));
+            }
+            if (themedSprites === 0) {
+                // Existing vector items (e.g. coffee) still reserve their body,
+                // not just the text Label. Known vector top overflow is shared
+                // with the existing visual regressions, never redefined here.
+                const config = context.level.items.find(item => this._workItems.get(item.id)?.node === root);
+                const overflow = config === undefined ? 0 : (ITEM_VISUAL_TOP_OVERFLOW as Readonly<Partial<Record<string, number>>>)[config.visual] ?? 0;
+                const body = touchBounds(root);
+                visuals.push({ ...body, top: body.top + overflow });
+            }
+            return { visuals, supports };
+        };
+        const obstacles: OfficeBounds[] = [];
+        const inputBlockers: OfficeBounds[] = [];
+        const supports: OfficeBounds[] = [];
+        const items = context.level.items.filter(item => item.interaction === 'drag').map((config, index) => {
+            const node = this._workItems.get(config.id)?.node;
+            if (node === undefined) { throw new Error(`Office layout: missing item ${config.id}`); }
+            const center = space.convertToNodeSpaceAR(node.worldPosition);
+            const local = (r: OfficeBounds): OfficeBounds => ({ left: r.left - center.x, right: r.right - center.x, bottom: r.bottom - center.y, top: r.top - center.y });
+            return { id: config.id, bounds: local(measure(node).visuals.reduce(unionOfficeBounds)), touch: local(touchBounds(node)), preferredColumn: index % layout.tabletop.columns.length };
+        });
+        for (const config of context.level.items.filter(item => item.interaction !== 'drag')) {
+            const node = this._workItems.get(config.id)?.node;
+            if (node === undefined) { continue; }
+            const measured = measure(node);
+            if (!measured.supports.length) { throw new Error(`Office layout: missing rear support metadata for ${config.id}`); }
+            obstacles.push(...measured.visuals);
+            supports.push(...measured.supports);
+            if (config.interaction !== 'static') { inputBlockers.push(touchBounds(node)); }
+        }
+        for (const config of context.level.zones.filter(zone => zone.position.y >= 0)) {
+            const node = this._dropZones.get(config.id)?.node;
+            if (node === undefined) { continue; }
+            const measured = measure(node);
+            if (!measured.supports.length) { throw new Error(`Office layout: missing target support metadata for ${config.id}`); }
+            obstacles.push(...measured.visuals);
+            supports.push(...measured.supports);
+        }
+        const geometry: OfficeDeskGeometry = { viewportWidth: this._viewport.width, viewportHeight: this._viewport.height,
+            backgroundCenterY: space.convertToNodeSpaceAR(background.node.worldPosition).y, items, obstacles, inputBlockers, supports };
+        const resolved = solveOfficeDeskLayout(layout.tabletop, geometry);
+        this._officeDeskGeometry = geometry;
+        this._officeDeskLayout = resolved;
+        if (!resolved.ok) {
+            throw new Error(`Office layout ${context.level.id}: ${resolved.reason}; items: ${resolved.itemIds.join(', ')}. Adjust level capacity, not touch sizes.`);
+        }
+        background.setArtworkFraming({ scale: resolved.backgroundScale, offsetY: resolved.backgroundOffsetY });
+        for (const id of Object.keys(resolved.positions)) {
+            this._workItems.get(id)?.applyInitialLayout(resolved.positions[id]);
+        }
     }
 
     public setLifecyclePaused(paused: boolean, showContinue: boolean): void {

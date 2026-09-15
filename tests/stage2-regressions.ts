@@ -2,6 +2,15 @@ import { LevelSession } from '../assets/scripts/core/LevelSession';
 import { ProgressService, ProgressStorage } from '../assets/scripts/core/ProgressService';
 import { parseLevel, validateLevelCatalog } from '../assets/scripts/data/LevelParser';
 import { LevelConfig, WorkItemConfig } from '../assets/scripts/data/LevelTypes';
+import {
+    calculateOfficeArtworkLayout,
+    DEFAULT_OFFICE_THEME_ID,
+    getOfficeTheme,
+    resolveOfficeItemArtwork,
+    solveOfficeDeskLayout,
+    OfficeDeskGeometry,
+    resolveOfficeZoneArtwork,
+} from '../assets/scripts/ui/OfficeTheme';
 import { calculateCoveredRatio, ITEM_VISUAL_TOP_OVERFLOW, VisualRect } from '../assets/scripts/ui/VisualMetrics';
 
 declare function require(moduleName: string): unknown;
@@ -127,6 +136,14 @@ assert(levels.length === 5, '必须加载五份有效关卡配置');
 assert(levels.map((level) => level.id).join(',') === 'level-001,level-002,level-003,level-004,level-005', '关卡顺序错误');
 
 const level1 = getLevel(levels, 1);
+const internOfficeTheme = getOfficeTheme(DEFAULT_OFFICE_THEME_ID);
+assert(internOfficeTheme.id === 'intern-office-v1', '五关默认办公室主题入口必须指向intern-office-v1');
+assert(Object.keys(internOfficeTheme.assets).length === 11, '实习期办公室主题必须完整映射11张资源');
+assert(
+    internOfficeTheme.decorations.plant.interactive === false
+    && internOfficeTheme.decorations.plant.behindInteraction === true,
+    '绿植必须是不接收触摸且位于交互节点之后的纯装饰',
+);
 const level1VisualMap = level1.items.map((item) => `${item.id}:${item.visual}:${item.visualVariant ?? '-'}`).join(',');
 assert(
     level1VisualMap === 'monitor:monitor:-,console:console:-,snack:snack:-,contract:contract:-,plant:plant:-',
@@ -136,6 +153,117 @@ assert(
     level1.zones.map((zone) => `${zone.id}:${zone.visual}`).join(',') === 'drawer:drawer,trash:trash,review:review-tray',
     '第一关已验收的目标区域视觉映射不得改变',
 );
+assert(
+    level1.items.map((item) => `${item.id}:${item.initialPosition.x},${item.initialPosition.y}:${item.size.width}x${item.size.height}`).join('|')
+        === 'monitor:-128,126:270x150|console:-218,-58:150x88|snack:-28,-72:112x124|contract:248,-72:158x96|plant:72,82:112x132',
+    '主题接入不得改变第一关交互父节点的位置或碰撞尺寸',
+);
+assert(
+    level1.zones.map((zone) => `${zone.id}:${zone.position.x},${zone.position.y}:${zone.size.width}x${zone.size.height}`).join('|')
+        === 'drawer:-225,-225:190x112|trash:260,-230:126x150|review:218,132:220x142',
+    '主题接入不得改变第一关DropZone位置、大小或吸附范围',
+);
+assert(
+    level1.items.map((item) => resolveOfficeItemArtwork(item)?.asset ?? '-').join(',')
+        === 'monitorPlay,gameConsole,snackBag,blueContract,plant',
+    '第一关物品必须映射到实习期办公室正式Sprite',
+);
+assert(
+    level1.zones.map((zone) => resolveOfficeZoneArtwork(zone)?.asset ?? '-').join(',')
+        === 'personalDrawer,wastebasket,inspectionTray',
+    '第一关目标容器必须映射到实习期办公室正式Sprite',
+);
+const monitorConfig = getItem(level1, 'monitor');
+const monitorPlayLayout = calculateOfficeArtworkLayout(
+    internOfficeTheme,
+    'monitorPlay',
+    monitorConfig.size.width,
+    monitorConfig.size.height,
+);
+const monitorWorkLayout = calculateOfficeArtworkLayout(
+    internOfficeTheme,
+    'monitorWork',
+    monitorConfig.size.width,
+    monitorConfig.size.height,
+);
+assert(
+    JSON.stringify(monitorPlayLayout) === JSON.stringify(monitorWorkLayout),
+    '电脑娱乐态和工作态必须共用完全一致的画布、位置和缩放基准',
+);
+for (const assetKey of ['gameConsole', 'snackBag', 'blueContract'] as const) {
+    assert(
+        internOfficeTheme.placements[assetKey].offsetX === 0
+        && internOfficeTheme.placements[assetKey].offsetY === 0,
+        `${assetKey}视觉子节点必须恢复统一的(0,0)局部基准`,
+    );
+}
+for (const assetKey of ['personalDrawer', 'wastebasket'] as const) {
+    const placement = internOfficeTheme.placements[assetKey];
+    assert(
+        placement.widthRatio === 1.18 && placement.heightRatio === 1.18,
+        `${assetKey}视觉子节点必须放大18%且不改变逻辑节点`,
+    );
+}
+const level1TabletopLayout = internOfficeTheme.levelLayouts[level1.id];
+assert(level1TabletopLayout !== undefined, '实习期办公室必须配置第一关桌面布局');
+if (level1TabletopLayout !== undefined) {
+    for (const itemId of ['console', 'snack', 'contract']) {
+        const item = getItem(level1, itemId);
+        const artwork = resolveOfficeItemArtwork(item);
+        assert(artwork !== null, `${itemId}必须存在办公室主题视觉`);
+        if (artwork === null) {
+            continue;
+        }
+        const artworkLayout = calculateOfficeArtworkLayout(
+            internOfficeTheme,
+            artwork.asset,
+            item.size.width,
+            item.size.height,
+        );
+        assert(artworkLayout.x === 0 && artworkLayout.y === 0, `${itemId}触摸中心必须与Sprite画布中心一致`);
+    }
+}
+for (const level of levels.slice(1)) {
+    assert(internOfficeTheme.levelLayouts[level.id] === undefined, `${level.id}不得受第一关桌面布局影响`);
+}
+
+// Generic capacity regression: six future items in three columns/two rows.
+// These fixtures test the allocator, not acceptance of the real PNG layout;
+// the latter is independently measured by intern-office-layout-runtime.cjs.
+const capacityTable = {
+    sourceWidth: 1000, sourceHeight: 1000,
+    backProfile: [{ x: 0, y: 100 }, { x: 1000, y: 100 }], frontPixel: 900,
+    columns: [-250, 0, 250], gap: 12, supportGap: 8, maximumBackgroundZoom: 1.15,
+};
+const capacityGeometry: OfficeDeskGeometry = {
+    viewportWidth: 1000, viewportHeight: 1000, backgroundCenterY: 0,
+    supports: [{ left: -50, right: 50, bottom: 220, top: 220 }],
+    obstacles: [{ left: -500, right: 500, bottom: 220, top: 320 }], inputBlockers: [],
+    items: Array.from({ length: 6 }, (_, index) => ({
+        id: `future-${index}`, preferredColumn: index % 3,
+        bounds: { left: -45, right: 45, bottom: -32, top: 32 },
+        touch: { left: -60, right: 60, bottom: -45, top: 45 },
+    })),
+};
+const capacityResult = solveOfficeDeskLayout(capacityTable, capacityGeometry);
+assert(capacityResult.ok, '六个物品必须可分配为多列多排，不需要逐ID增加位置补丁');
+if (capacityResult.ok) {
+    const positions = Object.keys(capacityResult.positions).map(id => capacityResult.positions[id]);
+    assert(positions.length === 6, '容量求解不得丢弃物品');
+    for (let i = 0; i < positions.length; i += 1) {
+        assert(positions[i].y - 32 >= -400 + 12 && positions[i].y + 32 <= 220 - 12, '前排必须在木面内且避开后排');
+        for (let j = i + 1; j < positions.length; j += 1) {
+            assert(Math.abs(positions[i].x - positions[j].x) >= 132 || Math.abs(positions[i].y - positions[j].y) >= 102 - 0.001,
+                '多排物品连透明触摸区域也不能相互覆盖');
+        }
+    }
+    assert(JSON.stringify(capacityResult) === JSON.stringify(solveOfficeDeskLayout(capacityTable, capacityGeometry)), '布局必须可重复计算，不叠加偏移');
+}
+const overflowResult = solveOfficeDeskLayout(capacityTable, { ...capacityGeometry, items: [{
+    id: 'oversized', bounds: { left: -600, right: 600, bottom: -600, top: 600 },
+    touch: { left: -600, right: 600, bottom: -600, top: 600 },
+}] });
+assert(!overflowResult.ok && overflowResult.itemIds.indexOf('oversized') >= 0, '放不下时必须明确返回容量诊断，不能缩小或隐藏物品');
 
 const legacyLevelRaw = JSON.parse(fileSystem.readFileSync('assets/resources/levels/level-001.json', 'utf8')) as JsonRecord;
 const legacyZones = legacyLevelRaw.zones as JsonRecord[];

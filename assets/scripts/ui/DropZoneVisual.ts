@@ -1,8 +1,14 @@
-import { _decorator, Color, Component, Graphics, Label } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, Sprite } from 'cc';
 import { DropZoneConfig } from '../data/LevelTypes';
-import { createLabel, drawRoundedPanel, Palette } from './UIFactory';
+import { createLabel, drawRoundedPanel, Palette, requireTransform } from './UIFactory';
+import { calculateOfficeArtworkLayout, resolveOfficeZoneArtwork } from './OfficeTheme';
+import { LoadedOfficeThemeAssets } from './OfficeThemeAssets';
+import { createPassiveSprite } from './VisualFactory';
 
 const { ccclass } = _decorator;
+
+const BOTTOM_ZONE_LABEL_FONT_SIZE = 22;
+const BOTTOM_ZONE_LABEL_COLOR = new Color(226, 235, 238, 255);
 
 /** 收纳区域的纯视觉组件；高亮与完成效果不改变碰撞节点尺寸。 */
 @ccclass('DropZoneVisual')
@@ -10,6 +16,9 @@ export class DropZoneVisual extends Component {
     private _config: DropZoneConfig | null = null;
     private _graphics: Graphics | null = null;
     private _label: Label | null = null;
+    private _themeAssets: LoadedOfficeThemeAssets | null = null;
+    private _themeArtworkNode: Node | null = null;
+    private _themeArtworkSprite: Sprite | null = null;
     private _formal = false;
     private _highlighted = false;
     private _completed = false;
@@ -17,9 +26,14 @@ export class DropZoneVisual extends Component {
     private _progressCompleted = 0;
     private _progressTotal = 0;
 
-    public initialize(config: DropZoneConfig, formal: boolean): void {
+    public initialize(
+        config: DropZoneConfig,
+        formal: boolean,
+        themeAssets: LoadedOfficeThemeAssets | null = null,
+    ): void {
         this._config = config;
         this._formal = formal;
+        this._themeAssets = themeAssets;
         this._progressTotal = config.progressActionIds.length;
         this._progressText = this.createProgressText(0, this._progressTotal);
         this._graphics = this.node.getComponent(Graphics) ?? this.node.addComponent(Graphics);
@@ -30,12 +44,19 @@ export class DropZoneVisual extends Component {
             config.size.width - (formal ? 18 : 16),
             formal ? 52 : config.size.height - 12,
             {
-                fontSize: formal ? 20 : 22,
+                fontSize: formal && (config.visual === 'drawer' || config.visual === 'trash')
+                    ? BOTTOM_ZONE_LABEL_FONT_SIZE
+                    : formal ? 20 : 22,
                 color: Palette.blueGrayDark,
                 bold: true,
             },
         );
         this._label.node.setPosition(0, this.labelY(config));
+        this.render();
+    }
+
+    public setOfficeThemeAssets(themeAssets: LoadedOfficeThemeAssets | null): void {
+        this._themeAssets = themeAssets;
         this.render();
     }
 
@@ -81,7 +102,9 @@ export class DropZoneVisual extends Component {
         if (config === null || graphics === null) {
             return;
         }
+        const themedArtwork = this._formal && this.renderOfficeThemeArtwork(graphics, config);
         if (!this._formal) {
+            this.hideOfficeThemeArtwork();
             drawRoundedPanel(
                 this.node,
                 this._completed ? Palette.successPale : new Color(226, 234, 238, 220),
@@ -89,7 +112,8 @@ export class DropZoneVisual extends Component {
                 this._completed ? Palette.success : this._highlighted ? Palette.blue : Palette.blueGray,
                 this._highlighted ? 5 : 3,
             );
-        } else {
+        } else if (!themedArtwork) {
+            this.hideOfficeThemeArtwork();
             graphics.clear();
             switch (config.visual) {
                 case 'drawer':
@@ -120,10 +144,60 @@ export class DropZoneVisual extends Component {
             }
         }
         if (this._label !== null) {
-            this._label.string = this._progressText ?? this.zoneLabel(config);
+            const themeLabel = themedArtwork ? resolveOfficeZoneArtwork(config)?.runtimeLabel : null;
+            this._label.string = this._progressText ?? themeLabel ?? this.zoneLabel(config);
             this._label.color = this._completed
                 ? Palette.success
                 : this._highlighted ? Palette.blue : this.labelColor(config);
+        }
+    }
+
+    private renderOfficeThemeArtwork(graphics: Graphics, config: DropZoneConfig): boolean {
+        const themeAssets = this._themeAssets;
+        const artwork = resolveOfficeZoneArtwork(config);
+        if (themeAssets === null || artwork === null) {
+            return false;
+        }
+        const spriteFrame = themeAssets.frames[artwork.asset];
+        const layout = calculateOfficeArtworkLayout(
+            themeAssets.theme,
+            artwork.asset,
+            config.size.width,
+            config.size.height,
+        );
+        if (this._themeArtworkNode === null || this._themeArtworkSprite === null) {
+            const visual = createPassiveSprite(
+                this.node,
+                'OfficeThemeArtwork',
+                layout.width,
+                layout.height,
+                spriteFrame,
+            );
+            this._themeArtworkNode = visual.node;
+            this._themeArtworkSprite = visual.sprite;
+        }
+        requireTransform(this._themeArtworkNode).setContentSize(layout.width, layout.height);
+        this._themeArtworkNode.setPosition(layout.x, layout.y);
+        this._themeArtworkNode.setScale(1, 1, 1);
+        this._themeArtworkNode.setSiblingIndex(0);
+        this._themeArtworkNode.active = true;
+        this._themeArtworkSprite.spriteFrame = spriteFrame;
+
+        graphics.clear();
+        this.paintHighlight(graphics, config.size.width, config.size.height, 16);
+        // Office artwork already provides the target's visual surface. Keep the
+        // idle state clean; only draw a state outline while the zone is actively
+        // highlighted or has been completed. This prevents a second translucent
+        // rounded rectangle from showing beneath the full-size artwork.
+        if (this._highlighted || this._completed) {
+            this.paintStateStroke(graphics, config.size.width, config.size.height, 16);
+        }
+        return true;
+    }
+
+    private hideOfficeThemeArtwork(): void {
+        if (this._themeArtworkNode !== null) {
+            this._themeArtworkNode.active = false;
         }
     }
 
@@ -289,7 +363,7 @@ export class DropZoneVisual extends Component {
 
     private labelColor(config: DropZoneConfig): Color {
         if (this._formal && (config.visual === 'drawer' || config.visual === 'trash')) {
-            return Palette.mutedLight;
+            return BOTTOM_ZONE_LABEL_COLOR;
         }
         return Palette.blueGrayDark;
     }

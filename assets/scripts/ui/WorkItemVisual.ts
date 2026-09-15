@@ -1,9 +1,18 @@
-import { _decorator, Color, Component, Graphics, Label, Node } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, Sprite } from 'cc';
 import { WorkItemConfig } from '../data/LevelTypes';
 import { createLabel, createRoundedPanel, drawRoundedPanel, Palette, requireTransform } from './UIFactory';
+import {
+    calculateOfficeArtworkLayout,
+    resolveOfficeItemArtwork,
+} from './OfficeTheme';
+import { LoadedOfficeThemeAssets } from './OfficeThemeAssets';
+import { createPassiveSprite } from './VisualFactory';
 import { LEVEL_ONE_PLANT_VISUAL_OFFSET_X } from './VisualMetrics';
 
 const { ccclass } = _decorator;
+
+const MONITOR_NOTE_FONT_SIZE = 18;
+const MONITOR_NOTE_TEXT_COLOR = new Color(35, 43, 48, 255);
 
 /** 物品的纯视觉组件；不参与触摸、目标判断和任务完成。 */
 @ccclass('WorkItemVisual')
@@ -15,13 +24,35 @@ export class WorkItemVisual extends Component {
     private _visualBadgeLabel: Label | null = null;
     private _visualCodeLabel: Label | null = null;
     private _checkBadge: Node | null = null;
+    private _themeAssets: LoadedOfficeThemeAssets | null = null;
+    private _themeArtworkNode: Node | null = null;
+    private _themeArtworkSprite: Sprite | null = null;
+    private _monitorNoteNode: Node | null = null;
+    private _monitorNoteSprite: Sprite | null = null;
+    private _monitorNoteLabel: Label | null = null;
     private _formal = false;
+    private _clickProgress = 0;
+    private _completed = false;
+    private _selected = false;
+    private _collectedHidden = false;
 
-    public initialize(config: WorkItemConfig, formal: boolean): void {
+    public initialize(
+        config: WorkItemConfig,
+        formal: boolean,
+        themeAssets: LoadedOfficeThemeAssets | null = null,
+    ): void {
         this._config = config;
         this._formal = formal;
+        this._themeAssets = themeAssets;
         this._graphics = this.node.getComponent(Graphics) ?? this.node.addComponent(Graphics);
         this.buildLabels();
+    }
+
+    public setOfficeThemeAssets(themeAssets: LoadedOfficeThemeAssets | null): void {
+        this._themeAssets = themeAssets;
+        if (!this._collectedHidden) {
+            this.render(this._clickProgress, this._completed, this._selected);
+        }
     }
 
     public render(clickProgress: number, completed: boolean, selected: boolean): void {
@@ -30,10 +61,20 @@ export class WorkItemVisual extends Component {
         if (config === null || graphics === null) {
             return;
         }
+        this._clickProgress = clickProgress;
+        this._completed = completed;
+        this._selected = selected;
+        this._collectedHidden = false;
         this.setLabelsVisible(true);
+        const themedArtwork = this._formal
+            && this.renderOfficeThemeArtwork(graphics, config, clickProgress, completed, selected);
         if (this._formal) {
-            this.paintFormal(graphics, config, clickProgress, completed, selected);
+            if (!themedArtwork) {
+                this.hideOfficeThemeArtwork();
+                this.paintFormal(graphics, config, clickProgress, completed, selected);
+            }
         } else {
+            this.hideOfficeThemeArtwork();
             this.paintLegacy(config, clickProgress, completed, selected);
         }
         if (this._checkBadge !== null) {
@@ -44,12 +85,145 @@ export class WorkItemVisual extends Component {
     /** 组合任务页面收入容器后只隐藏外观，逻辑节点与碰撞状态保持不变。 */
     public hideCollectedVisual(): void {
         this._graphics?.clear();
+        this._collectedHidden = true;
+        this.hideOfficeThemeArtwork();
         this.setLabelsVisible(false);
         if (this._checkBadge !== null) {
             this._checkBadge.active = false;
         }
         // 页面已收入文件夹后退到底层，避免透明逻辑节点遮挡新生成的装订报告。
         this.node.setSiblingIndex(0);
+    }
+
+    private renderOfficeThemeArtwork(
+        graphics: Graphics,
+        config: WorkItemConfig,
+        clickProgress: number,
+        completed: boolean,
+        selected: boolean,
+    ): boolean {
+        const themeAssets = this._themeAssets;
+        const artwork = resolveOfficeItemArtwork(config);
+        if (themeAssets === null || artwork === null) {
+            return false;
+        }
+        const assetKey = config.visual === 'monitor'
+            ? clickProgress > 0 ? 'monitorWork' : 'monitorPlay'
+            : artwork.asset;
+        const spriteFrame = themeAssets.frames[assetKey];
+        const layout = calculateOfficeArtworkLayout(
+            themeAssets.theme,
+            assetKey,
+            config.size.width,
+            config.size.height,
+        );
+        if (this._themeArtworkNode === null || this._themeArtworkSprite === null) {
+            const visual = createPassiveSprite(
+                this.node,
+                'OfficeThemeArtwork',
+                layout.width,
+                layout.height,
+                spriteFrame,
+            );
+            this._themeArtworkNode = visual.node;
+            this._themeArtworkSprite = visual.sprite;
+        }
+        requireTransform(this._themeArtworkNode).setContentSize(layout.width, layout.height);
+        this._themeArtworkNode.setPosition(layout.x, layout.y);
+        this._themeArtworkNode.setScale(1, 1, 1);
+        this._themeArtworkNode.setSiblingIndex(0);
+        this._themeArtworkNode.active = true;
+        this._themeArtworkSprite.spriteFrame = spriteFrame;
+
+        graphics.clear();
+        this.strokeSelection(
+            graphics,
+            config.size.width,
+            config.size.height,
+            selected,
+            completed,
+            this.isDocument(config.visual) ? 8 : 16,
+        );
+
+        if (config.visual === 'monitor') {
+            this.renderMonitorNote(themeAssets, config, clickProgress === 0 && !completed);
+            if (this._pageLabel !== null) {
+                this._pageLabel.node.active = false;
+            }
+        } else {
+            this.hideMonitorNote();
+            if (this._mainLabel !== null) {
+                this._mainLabel.string = artwork.runtimeLabel;
+                this._mainLabel.color = this.labelColor(config.visual);
+            }
+        }
+        return true;
+    }
+
+    private renderMonitorNote(
+        themeAssets: LoadedOfficeThemeAssets,
+        config: WorkItemConfig,
+        visible: boolean,
+    ): void {
+        if (!visible) {
+            this.hideMonitorNote();
+            return;
+        }
+        const assetKey = 'monitorNote';
+        const spriteFrame = themeAssets.frames[assetKey];
+        const layout = calculateOfficeArtworkLayout(
+            themeAssets.theme,
+            assetKey,
+            config.size.width,
+            config.size.height,
+        );
+        if (this._monitorNoteNode === null || this._monitorNoteSprite === null) {
+            const visual = createPassiveSprite(
+                this.node,
+                'MonitorNoteArtwork',
+                layout.width,
+                layout.height,
+                spriteFrame,
+            );
+            this._monitorNoteNode = visual.node;
+            this._monitorNoteSprite = visual.sprite;
+            this._monitorNoteLabel = createLabel(
+                this._monitorNoteNode,
+                'MonitorNoteLabel',
+                '摸鱼中',
+                layout.width * 0.98,
+                34,
+                {
+                    fontSize: MONITOR_NOTE_FONT_SIZE,
+                    color: MONITOR_NOTE_TEXT_COLOR,
+                    bold: true,
+                    wrap: false,
+                },
+            );
+            this._monitorNoteLabel.node.setPosition(0, -2);
+        }
+        requireTransform(this._monitorNoteNode).setContentSize(layout.width, layout.height);
+        this._monitorNoteNode.setPosition(layout.x, layout.y);
+        this._monitorNoteNode.setScale(1, 1, 1);
+        this._monitorNoteNode.setSiblingIndex(1);
+        this._monitorNoteNode.active = true;
+        this._monitorNoteSprite.spriteFrame = spriteFrame;
+        if (this._monitorNoteLabel !== null) {
+            this._monitorNoteLabel.string = '摸鱼中';
+        }
+    }
+
+    private hideOfficeThemeArtwork(): void {
+        if (this._themeArtworkNode !== null) {
+            this._themeArtworkNode.active = false;
+        }
+        this.hideMonitorNote();
+    }
+
+    private hideMonitorNote(): void {
+        if (this._monitorNoteNode !== null) {
+            this._monitorNoteNode.active = false;
+        }
     }
 
     private buildLabels(): void {

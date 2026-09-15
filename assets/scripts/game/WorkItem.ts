@@ -9,8 +9,9 @@ import {
     Vec3,
 } from 'cc';
 import { AudioFeedback } from '../core/AudioFeedback';
-import { WorkItemConfig } from '../data/LevelTypes';
+import { PointData, WorkItemConfig } from '../data/LevelTypes';
 import { requireTransform } from '../ui/UIFactory';
+import { LoadedOfficeThemeAssets } from '../ui/OfficeThemeAssets';
 import { WorkItemVisual } from '../ui/WorkItemVisual';
 import { DropZone } from './DropZone';
 
@@ -43,9 +44,22 @@ export class WorkItem extends Component {
     private _pressed = false;
     private _clickProgress = 0;
     private _nearCuePlayed = false;
+    private _temporaryDragOrder = false;
+    private _dragSiblingIndex: number | null = null;
+    private _hasInteracted = false;
 
     public get itemId(): string {
         return this._config?.id ?? '';
+    }
+
+    public get canApplyInitialLayout(): boolean {
+        return !this._hasInteracted && !this._pressed && !this._completed;
+    }
+
+    public applyInitialLayout(position: PointData): void {
+        if (!this.canApplyInitialLayout) { throw new Error('Cannot change the home of an interacting item'); }
+        this._homePosition.set(position.x, position.y, 0);
+        this.node.setPosition(this._homePosition);
     }
 
     public configure(
@@ -56,8 +70,13 @@ export class WorkItem extends Component {
         onMessage: WorkItemMessage,
         audio: AudioFeedback,
         formalVisuals = false,
+        themeAssets: LoadedOfficeThemeAssets | null = null,
+        initialPosition: PointData = config.initialPosition,
+        temporaryDragOrder = false,
     ): void {
         this._config = config;
+        this._temporaryDragOrder = temporaryDragOrder;
+        this._hasInteracted = false;
         this._zones = zones;
         this._canInteract = canInteract;
         this._onCompleted = onCompleted;
@@ -65,11 +84,24 @@ export class WorkItem extends Component {
         this._audio = audio;
         this._formalVisuals = formalVisuals;
         requireTransform(this.node).setContentSize(config.size.width, config.size.height);
-        this.node.setPosition(config.initialPosition.x, config.initialPosition.y);
+        this.node.setPosition(initialPosition.x, initialPosition.y);
         this._homePosition.set(this.node.position);
         this._visual = this.node.addComponent(WorkItemVisual);
-        this._visual.initialize(config, formalVisuals);
+        this._visual.initialize(config, formalVisuals, themeAssets);
+        if (config.interaction === 'static') {
+            this.removeListeners();
+            if (themeAssets !== null) {
+                this.node.setSiblingIndex(0);
+            }
+        }
         this.resetItem();
+    }
+
+    public setOfficeThemeAssets(themeAssets: LoadedOfficeThemeAssets | null): void {
+        this._visual?.setOfficeThemeAssets(themeAssets);
+        if (this._config?.interaction === 'static' && themeAssets !== null) {
+            this.node.setSiblingIndex(0);
+        }
     }
 
     public setAvailable(available: boolean): void {
@@ -87,6 +119,7 @@ export class WorkItem extends Component {
     }
 
     public resetItem(): void {
+        this.restoreDragOrder();
         Tween.stopAllByTarget(this.node);
         this._completed = false;
         this._pressed = false;
@@ -98,6 +131,7 @@ export class WorkItem extends Component {
     }
 
     public stopInteraction(): void {
+        this.restoreDragOrder();
         if (!this._pressed || this._completed) {
             return;
         }
@@ -108,6 +142,7 @@ export class WorkItem extends Component {
 
     /** 后台取消动画时落实已接受的吸附状态，未完成拖拽立即归位。 */
     public cancelFeedback(): void {
+        this.restoreDragOrder();
         Tween.stopAllByTarget(this.node);
         this._pressed = false;
         this.clearTargetHighlight();
@@ -120,6 +155,9 @@ export class WorkItem extends Component {
     }
 
     protected override onEnable(): void {
+        if (this._config?.interaction === 'static') {
+            return;
+        }
         this.node.on(Node.EventType.TOUCH_START, this.onTouchStart, this);
         this.node.on(Node.EventType.TOUCH_MOVE, this.onTouchMove, this);
         this.node.on(Node.EventType.TOUCH_END, this.onTouchEnd, this);
@@ -127,6 +165,7 @@ export class WorkItem extends Component {
     }
 
     protected override onDisable(): void {
+        this.restoreDragOrder();
         this.removeListeners();
         Tween.stopAllByTarget(this.node);
         this._pressed = false;
@@ -136,6 +175,7 @@ export class WorkItem extends Component {
     }
 
     protected override onDestroy(): void {
+        this.restoreDragOrder();
         this.removeListeners();
         Tween.stopAllByTarget(this.node);
         this._canInteract = null;
@@ -153,8 +193,9 @@ export class WorkItem extends Component {
         }
         event.propagationStopped = true;
         this._pressed = true;
+        this._hasInteracted = true;
         this._nearCuePlayed = false;
-        this.node.setSiblingIndex(this.node.parent?.children.length ?? 0);
+        if (!this._temporaryDragOrder) { this.node.setSiblingIndex(this.node.parent?.children.length ?? 0); }
         Tween.stopAllByTarget(this.node);
         if (!this._audio?.reducedMotion) { tween(this.node).to(0.07, { scale: this._selectedScale }).start(); }
         this._visual?.render(this._clickProgress, false, true);
@@ -167,6 +208,10 @@ export class WorkItem extends Component {
         }
         event.propagationStopped = true;
         event.getUIDelta(this._touchDelta);
+        if (this._temporaryDragOrder && this._dragSiblingIndex === null && (this._touchDelta.x !== 0 || this._touchDelta.y !== 0)) {
+            this._dragSiblingIndex = this.node.getSiblingIndex();
+            this.node.setSiblingIndex(this.node.parent?.children.length ?? 0);
+        }
         this.node.setPosition(
             this.node.position.x + this._touchDelta.x,
             this.node.position.y + this._touchDelta.y,
@@ -182,6 +227,7 @@ export class WorkItem extends Component {
         }
         event.propagationStopped = true;
         this._pressed = false;
+        this.restoreDragOrder();
         this.clearTargetHighlight();
         if (!this._canInteract?.()) {
             this.returnHome();
@@ -219,12 +265,20 @@ export class WorkItem extends Component {
     }
 
     private onTouchCancel(): void {
+        this.restoreDragOrder();
         if (!this._pressed) {
             return;
         }
         this._pressed = false;
         this.clearTargetHighlight();
         this.returnHome();
+    }
+
+    private restoreDragOrder(): void {
+        if (this._dragSiblingIndex !== null) {
+            this.node.setSiblingIndex(this._dragSiblingIndex);
+            this._dragSiblingIndex = null;
+        }
     }
 
     private advanceClickItem(): void {

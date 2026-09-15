@@ -28,6 +28,7 @@ export class FullBleedBackground extends Component {
     private _gameNavigationY: number | undefined;
     private _artworkNode: Node | null = null;
     private _artworkSprite: Sprite | null = null;
+    private _artworkFraming: { readonly scale: number; readonly offsetY: number } | null = null;
 
     public initialize(
         viewport: FixedWidthViewport,
@@ -46,6 +47,12 @@ export class FullBleedBackground extends Component {
     /** 后续正式美术只需注入 SpriteFrame，无需改变页面布局或适配代码。 */
     public setSpriteFrame(spriteFrame: SpriteFrame | null): void {
         this.replacementSpriteFrame = spriteFrame;
+        this.render();
+    }
+
+    /** Theme-only camera framing. Never moves any foreground or DropZone node. */
+    public setArtworkFraming(framing: { readonly scale: number; readonly offsetY: number } | null): void {
+        this._artworkFraming = framing;
         this.render();
     }
 
@@ -79,7 +86,14 @@ export class FullBleedBackground extends Component {
         const sourceHeight = Math.max(1, originalSize.height);
         const cover = calculateCoverLayout(viewport.width, viewport.height, sourceWidth, sourceHeight);
         requireTransform(this._artworkNode).setContentSize(sourceWidth, sourceHeight);
-        this._artworkNode.setScale(cover.scale, cover.scale, 1);
+        const scale = Math.max(cover.scale, this._artworkFraming?.scale ?? cover.scale);
+        const travel = Math.max(0, (sourceHeight * scale - viewport.height) / 2);
+        const offset = this._artworkFraming?.offsetY ?? 0;
+        if (Math.abs(offset) > travel + 0.01) {
+            throw new Error('Office background framing would uncover the viewport');
+        }
+        this._artworkNode.setScale(scale, scale, 1);
+        this._artworkNode.setPosition(0, offset, 0);
         this._artworkSprite.spriteFrame = spriteFrame;
         this._artworkNode.active = true;
     }

@@ -2,6 +2,7 @@ import { _decorator, Component, Node, UITransform, Vec2, Vec3 } from 'cc';
 import { DropZoneConfig } from '../data/LevelTypes';
 import { DropZoneVisual } from '../ui/DropZoneVisual';
 import { requireTransform } from '../ui/UIFactory';
+import { LoadedOfficeThemeAssets } from '../ui/OfficeThemeAssets';
 
 const { ccclass } = _decorator;
 
@@ -16,13 +17,21 @@ export class DropZone extends Component {
         return this._config?.id ?? '';
     }
 
-    public configure(config: DropZoneConfig, formalVisuals = false): void {
+    public configure(
+        config: DropZoneConfig,
+        formalVisuals = false,
+        themeAssets: LoadedOfficeThemeAssets | null = null,
+    ): void {
         this._config = config;
         this.node.setPosition(config.position.x, config.position.y);
         requireTransform(this.node).setContentSize(config.size.width, config.size.height);
         this._visual = this.node.addComponent(DropZoneVisual);
-        this._visual.initialize(config, formalVisuals);
+        this._visual.initialize(config, formalVisuals, themeAssets);
         this.resetVisual();
+    }
+
+    public setOfficeThemeAssets(themeAssets: LoadedOfficeThemeAssets | null): void {
+        this._visual?.setOfficeThemeAssets(themeAssets);
     }
 
     public contains(itemNode: Node): boolean {
