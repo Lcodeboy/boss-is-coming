@@ -62,6 +62,18 @@ export class WorkItem extends Component {
         this.node.setPosition(this._homePosition);
     }
 
+    /** Release a collected slot before its validated successor is revealed; no task/state changes. */
+    public finishCollectedLayoutTransition(): void {
+        if (!this._completed || this._config?.interaction !== 'drag' || this._config.completeZoneOnDrop) {
+            throw new Error(`Cannot reuse occupied office slot: ${this.itemId}`);
+        }
+        this.restoreDragOrder();
+        Tween.stopAllByTarget(this.node);
+        this.node.setPosition(this._snapPosition);
+        this.node.setScale(this._normalScale);
+        this._visual?.hideCollectedVisual();
+    }
+
     public configure(
         config: WorkItemConfig,
         zones: readonly DropZone[],

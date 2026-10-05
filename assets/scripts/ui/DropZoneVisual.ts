@@ -4,6 +4,7 @@ import { createLabel, drawRoundedPanel, Palette, requireTransform } from './UIFa
 import { calculateOfficeArtworkLayout, resolveOfficeZoneArtwork } from './OfficeTheme';
 import { LoadedOfficeThemeAssets } from './OfficeThemeAssets';
 import { createPassiveSprite } from './VisualFactory';
+import { OfficeLabelBackdrops } from './OfficeLabelBackdrops';
 
 const { ccclass } = _decorator;
 
@@ -25,6 +26,7 @@ export class DropZoneVisual extends Component {
     private _progressText: string | null = null;
     private _progressCompleted = 0;
     private _progressTotal = 0;
+    private readonly _officeLabels = new OfficeLabelBackdrops();
 
     public initialize(
         config: DropZoneConfig,
@@ -102,6 +104,8 @@ export class DropZoneVisual extends Component {
         if (config === null || graphics === null) {
             return;
         }
+        this._officeLabels.reset();
+        this._label?.node.setPosition(0, this.labelY(config));
         const themedArtwork = this._formal && this.renderOfficeThemeArtwork(graphics, config);
         if (!this._formal) {
             this.hideOfficeThemeArtwork();
@@ -149,6 +153,15 @@ export class DropZoneVisual extends Component {
             this._label.color = this._completed
                 ? Palette.success
                 : this._highlighted ? Palette.blue : this.labelColor(config);
+            const asset = resolveOfficeZoneArtwork(config)?.asset;
+            const placement = asset === undefined ? undefined : this._themeAssets?.theme.zoneLabels[asset];
+            if (themedArtwork && placement !== undefined && this._themeAssets !== null) {
+                if (config.position.y < 0 && placement.bottomTitleGap !== undefined) {
+                    this._label.node.setPosition(0, config.size.height / 2 + placement.bottomTitleGap);
+                }
+                // State outlines/check marks carry status, not lower-contrast text colors.
+                this._officeLabels.apply(this._label, this._themeAssets.theme.labelStyles[placement.style], placement);
+            }
         }
     }
 
@@ -182,6 +195,9 @@ export class DropZoneVisual extends Component {
         this._themeArtworkNode.setSiblingIndex(0);
         this._themeArtworkNode.active = true;
         this._themeArtworkSprite.spriteFrame = spriteFrame;
+        if (artwork.labelYRatio !== undefined) {
+            this._label?.node.setPosition(0, layout.height * artwork.labelYRatio);
+        }
 
         graphics.clear();
         this.paintHighlight(graphics, config.size.width, config.size.height, 16);

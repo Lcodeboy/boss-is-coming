@@ -12,6 +12,7 @@ import {
     resolveOfficeZoneArtwork,
 } from '../assets/scripts/ui/OfficeTheme';
 import { calculateCoveredRatio, ITEM_VISUAL_TOP_OVERFLOW, VisualRect } from '../assets/scripts/ui/VisualMetrics';
+import { parseOfficeLayoutCatalog, reserveOfficeSlots, validateOfficeLevelLayout } from '../assets/scripts/ui/OfficeLayoutCatalog';
 
 declare function require(moduleName: string): unknown;
 
@@ -136,9 +137,11 @@ assert(levels.length === 5, '必须加载五份有效关卡配置');
 assert(levels.map((level) => level.id).join(',') === 'level-001,level-002,level-003,level-004,level-005', '关卡顺序错误');
 
 const level1 = getLevel(levels, 1);
-const internOfficeTheme = getOfficeTheme(DEFAULT_OFFICE_THEME_ID);
+const catalogRaw = JSON.parse(fileSystem.readFileSync('assets/resources/office/intern-office-layouts.json', 'utf8'));
+const layoutCatalog = parseOfficeLayoutCatalog(catalogRaw);
+const internOfficeTheme = { ...getOfficeTheme(DEFAULT_OFFICE_THEME_ID), levelLayouts: layoutCatalog.levels };
 assert(internOfficeTheme.id === 'intern-office-v1', '五关默认办公室主题入口必须指向intern-office-v1');
-assert(Object.keys(internOfficeTheme.assets).length === 11, '实习期办公室主题必须完整映射11张资源');
+assert(Object.keys(internOfficeTheme.assets).length === 22, '实习期办公室主题必须完整映射v1+v2的22张资源');
 assert(
     internOfficeTheme.decorations.plant.interactive === false
     && internOfficeTheme.decorations.plant.behindInteraction === true,
@@ -223,8 +226,83 @@ if (level1TabletopLayout !== undefined) {
         assert(artworkLayout.x === 0 && artworkLayout.y === 0, `${itemId}触摸中心必须与Sprite画布中心一致`);
     }
 }
+const level2TabletopLayout = internOfficeTheme.levelLayouts['level-002'];
+assert(level2TabletopLayout !== undefined, '第二关五个前排物品必须配置桌面布局');
+if (level2TabletopLayout !== undefined) {
+    assert(JSON.stringify(level2TabletopLayout.tabletop.columns) === JSON.stringify([-260, -130, 0, 130, 260]), '第二关必须使用五列前排布局');
+    assert(level2TabletopLayout.tabletop.gap >= 12, '第二关物品之间必须保留可见间距');
+}
+for (const level of levels) {
+    const layout = internOfficeTheme.levelLayouts[level.id];
+    validateOfficeLevelLayout(level, layout);
+    assert(layout.templateId === 'intern-desk', `${level.id}共用木面模板`);
+    assert(level.items.filter(i => i.interaction === 'drag').every(i => layout.itemColumns[i.id] !== undefined), '隐藏和事件物品也必须预留槽位');
+}
+for (const mutate of [
+    (c: typeof catalogRaw) => { c.levels['level-001'].items.snack = 'left'; },
+    (c: typeof catalogRaw) => { c.levels['level-001'].template = 'missing'; },
+    (c: typeof catalogRaw) => { c.templates['intern-desk'].surface.gap = -1; },
+    (c: typeof catalogRaw) => { c.templates['intern-desk'].surface.frontPixel = 'bad'; },
+    (c: typeof catalogRaw) => { c.levels['level-001'].typo = true; },
+    (c: typeof catalogRaw) => { c.levels['level-003'].replaces['report-page-2'] = 'bound-report'; },
+    (c: typeof catalogRaw) => { c.levels['level-003'].replaces['bound-report'] = 'console'; },
+]) {
+    const bad = JSON.parse(JSON.stringify(catalogRaw)); mutate(bad);
+    let rejected = false; try { parseOfficeLayoutCatalog(bad); } catch { rejected = true; }
+    assert(rejected, '布局错表、重复槽位和非法几何不得静默回退旧坐标');
+}
+const missingEvent = JSON.parse(JSON.stringify(catalogRaw));
+delete missingEvent.levels['level-004'].items.coffee;
+let missingRejected = false;
+try { validateOfficeLevelLayout(getLevel(levels, 4), parseOfficeLayoutCatalog(missingEvent).levels['level-004']); } catch { missingRejected = true; }
+assert(missingRejected, '未给咖啡预留位置必须在运行前报错');
+for (const change of [
+    { initiallyVisible: true }, { unlockWhenActionIds: [] },
+]) {
+    const original = getLevel(levels, 3);
+    const invalid = { ...original, items: original.items.map(i => i.id === 'bound-report' ? { ...i, ...change } : i) };
+    let rejected = false;
+    try { validateOfficeLevelLayout(invalid, layoutCatalog.levels[original.id]); } catch { rejected = true; }
+    assert(rejected, '非互斥或缺少前置依赖的物品不得复用槽位');
+}
+const coffeeReuse = JSON.parse(JSON.stringify(catalogRaw));
+coffeeReuse.levels['level-004'].items.coffee = 'left';
+coffeeReuse.levels['level-004'].replaces = { coffee: 'console' };
+let timedReuseRejected = false;
+try { validateOfficeLevelLayout(getLevel(levels, 4), parseOfficeLayoutCatalog(coffeeReuse).levels['level-004']); } catch { timedReuseRejected = true; }
+assert(timedReuseRejected, '定时生成物品不能假设先前物品已收走');
+const reserved = reserveOfficeSlots(layoutCatalog.levels['level-003'], [
+    { id: 'report-page-2', fixedColumn: 2, bounds: { left: -40, right: 40, bottom: -60, top: 60 }, touch: { left: -46, right: 46, bottom: -56, top: 56 } },
+    { id: 'bound-report', fixedColumn: 2, bounds: { left: -75, right: 75, bottom: -40, top: 40 }, touch: { left: -80, right: 80, bottom: -50, top: 50 } },
+]);
+assert(reserved.length === 1 && reserved[0].id === 'report-page-2', '互斥物品只占一个槽位');
+assert(JSON.stringify(reserved[0].bounds) === JSON.stringify({ left: -75, right: 75, bottom: -60, top: 60 }), '预留可见边界必须包含高散页和宽报告');
+assert(JSON.stringify(reserved[0].touch) === JSON.stringify({ left: -80, right: 80, bottom: -56, top: 56 }), '预留触摸框不能缩小');
+assert(layoutCatalog.fingerprint === parseOfficeLayoutCatalog(JSON.parse(JSON.stringify(catalogRaw))).fingerprint, '布局指纹必须稳定');
+
+// All existing shared art is usable in levels 2–5; variants retain their task identity.
 for (const level of levels.slice(1)) {
-    assert(internOfficeTheme.levelLayouts[level.id] === undefined, `${level.id}不得受第一关桌面布局影响`);
+    for (const item of level.items) {
+        const artwork = resolveOfficeItemArtwork(item);
+        assert(artwork !== null, `${level.id}/${item.id}必须接入对应主题素材，包括延迟/解锁物品`);
+        if (item.visual === 'contract' && item.visualVariant !== undefined) {
+            assert(artwork?.asset === 'blueContract' && artwork.runtimeLabel === '', '蓝色文件变体必须共用封面并让出徽标文字区域');
+            assert(Boolean(item.visualBadge), '蓝色文件变体必须保留可辨别的运行时徽标');
+            const visual = calculateOfficeArtworkLayout(internOfficeTheme, 'blueContract', item.size.width, item.size.height);
+            assert(visual.x === 0 && visual.y === 0, '复用蓝色合同不得偏移图片或触摸中心');
+        }
+        if (item.visual === 'monitor') {
+            assert(resolveOfficeItemArtwork(item, 0)?.asset === 'monitorPlay', '电脑初态必须使用娱乐图片');
+            assert(resolveOfficeItemArtwork(item, item.clickStates.length - 1)?.asset === 'monitorWork', '电脑最终态必须使用工作图片');
+            for (let state = 1; state < item.clickStates.length - 1; state += 1) {
+                assert(resolveOfficeItemArtwork(item, state)?.asset === 'monitorMail', '邮箱中间态必须使用独立邮箱图，不能提前显示最终报表');
+            }
+        }
+    }
+    for (const zone of level.zones) {
+        assert(resolveOfficeZoneArtwork(zone) !== null,
+            `${level.id}/${zone.id}目标容器素材覆盖错误`);
+    }
 }
 
 // Generic capacity regression: six future items in three columns/two rows.
@@ -264,6 +342,12 @@ const overflowResult = solveOfficeDeskLayout(capacityTable, { ...capacityGeometr
     touch: { left: -600, right: 600, bottom: -600, top: 600 },
 }] });
 assert(!overflowResult.ok && overflowResult.itemIds.indexOf('oversized') >= 0, '放不下时必须明确返回容量诊断，不能缩小或隐藏物品');
+const fixedResult = solveOfficeDeskLayout(capacityTable, { ...capacityGeometry,
+    items: [{ ...capacityGeometry.items[0], preferredColumn: 0, fixedColumn: 2 }] });
+assert(fixedResult.ok && fixedResult.positions['future-0'].x === 250, '命名槽位必须是硬约束，不能按偏好换列');
+const badColumn = solveOfficeDeskLayout(capacityTable, { ...capacityGeometry,
+    items: [{ ...capacityGeometry.items[0], fixedColumn: 3 }] });
+assert(!badColumn.ok && badColumn.reason === 'invalid-geometry', '无效槽位必须拒绝而不是回退旧坐标');
 
 const legacyLevelRaw = JSON.parse(fileSystem.readFileSync('assets/resources/levels/level-001.json', 'utf8')) as JsonRecord;
 const legacyZones = legacyLevelRaw.zones as JsonRecord[];

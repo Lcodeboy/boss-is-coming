@@ -24,7 +24,7 @@ const ASSET_NAMES = { console: 'game-console', snack: 'snack-bag', contract: 'bl
 const failures = [];
 const reports = [];
 const inputResults = [];
-fs.mkdirSync(OUTPUT, { recursive: true });
+if (require.main === module) fs.mkdirSync(OUTPUT, { recursive: true });
 
 function readPng(filename) {
     const file = fs.readFileSync(filename);
@@ -149,6 +149,7 @@ function measure(data, record = true) {
     for (const n of data.nodes) {
         if (n.name === 'MonitorNoteArtwork') rear.push({ name: n.name, bounds: rect(n, bounds.note) });
         if (n.text && n.glyph && ['Item-monitor', 'Item-plant', 'Zone-review', 'MonitorNoteArtwork'].includes(n.parent)) rear.push({ name: n.name, bounds: rect(n, n.glyph) });
+        if (n.plate && n.parent === 'Zone-review') rear.push({ name: n.name, bounds: rect(n, { width: 1, height: 1, left: 0, right: 1, top: 0, bottom: 1 }) });
     }
     const supports = rearSupports(data);
     supports.forEach(s => {
@@ -158,7 +159,10 @@ function measure(data, record = true) {
     const front = FRONT.map(key => {
         const n = data.nodes.find(n => n.name === `Item-${key}`), sprite = findArtwork(n.name);
         const art = rect(sprite, bounds[key]); let visual = art;
-        for (const l of data.nodes.filter(l => l.parent === n.name && l.text && l.glyph)) visual = union(visual, rect(l, l.glyph));
+        for (const l of data.nodes.filter(l => l.parent === n.name)) {
+            if (l.text && l.glyph) visual = union(visual, rect(l, l.glyph));
+            if (l.plate) visual = union(visual, rect(l, { width: 1, height: 1, left: 0, right: 1, top: 0, bottom: 1 }));
+        }
         check(sprite.local.x === 0 && sprite.local.y === 0, `${name}/${key}: Sprite not at (0,0)`);
         check(n.local.x === n.home.x && n.local.y === n.home.y, `${name}/${key}: home differs from initial`);
         check(Math.abs(n.world.x - sprite.world.x) < 0.01 && Math.abs(n.world.y - sprite.world.y) < 0.01, `${name}/${key}: input and Sprite centers differ`);
@@ -226,14 +230,21 @@ async function capture(page) {
             return right > left ? { width, height, left, right, top, bottom } : null;
         }
         const transforms = scene.getComponentsInChildren(cc.UITransform).filter(t => t.node.activeInHierarchy && (
-            /^(Item-|Zone-|WorkspaceContent)/.test(t.node.name) || ['OfficeThemeArtwork', 'FullBleedArtwork', 'MonitorHint', 'ItemLabel', 'ZoneLabel', 'MonitorNoteArtwork', 'MonitorNoteLabel'].includes(t.node.name)));
+            /^(Item-|Zone-|WorkspaceContent|OfficeLabelBackdrop-)/.test(t.node.name) || ['OfficeThemeArtwork', 'FullBleedArtwork', 'MonitorHint', 'ItemLabel', 'ZoneLabel', 'VisualBadge', 'VisualCode', 'MonitorNoteArtwork', 'MonitorNoteLabel'].includes(t.node.name)));
         return { width: innerWidth, height: innerHeight, viewport: gv._viewport,
             resolvedLayout: gv._officeDeskLayout, layoutGeometry: gv._officeDeskGeometry,
             taskCount: scene.getComponentsInChildren(cc.Label).find(l => l.node.activeInHierarchy && l.node.name === 'TaskCount').string,
-            nodes: transforms.map(t => { const n = t.node, label = n.getComponent(cc.Label); return {
+            nodes: transforms.map(t => { const n = t.node, label = n.getComponent(cc.Label);
+                let owner = n; while (owner.parent && !/^(Item-|Zone-)/.test(owner.name)) owner = owner.parent;
+                return {
                 name: n.name, parent: n.parent.name, local: { ...n.position }, world: { ...n.worldPosition }, matrix: { ...n.worldMatrix },
                 size: { ...t.contentSize }, anchor: { ...t.anchorPoint }, text: label?.string, glyph: glyph(label), home: n.getComponent('WorkItem')?._homePosition,
                 sibling: n.getSiblingIndex(),
+                owner: owner.name, sprite: n.getComponent(cc.Sprite)?.spriteFrame?.name,
+                plate: n.name.startsWith('OfficeLabelBackdrop-'),
+                fill: n.name.startsWith('OfficeLabelBackdrop-') ? { r: n.getComponent(cc.Graphics).fillColor.r, g: n.getComponent(cc.Graphics).fillColor.g, b: n.getComponent(cc.Graphics).fillColor.b, a: n.getComponent(cc.Graphics).fillColor.a } : null,
+                fontSize: label?.fontSize, actualFontSize: label?.actualFontSize, color: label ? { r: label.color.r, g: label.color.g, b: label.color.b, a: label.color.a } : null,
+                interactive: [cc.Node.EventType.TOUCH_START, cc.Node.EventType.TOUCH_MOVE, cc.Node.EventType.TOUCH_END, cc.Node.EventType.TOUCH_CANCEL].some(type => n.hasEventListener(type)),
             }; }) };
     });
 }
@@ -380,18 +391,18 @@ async function verifySwitching(browser) {
             assert(state.layout.ok);
             if (firstLayout === undefined) firstLayout = state.layout;
             else assert.deepEqual(state.layout, firstLayout, 'return to level one must reproduce the same layout');
-        } else {
-            assert.equal(state.layout, null); assert.equal(state.background.position.y, 0);
-            for (const config of level.items) {
-                const item = state.items.find(i => i.id === config.id);
-                assert.deepEqual(item.home, { ...config.initialPosition, z: 0 }); assert.deepEqual(item.size, config.size); assert.equal(item.policy, false);
-            }
+        }
+        assert(state.layout.ok, `${level.id}: missing template layout`);
+        for (const config of level.items) {
+            const item = state.items.find(i => i.id === config.id);
+            const position = config.interaction === 'drag' ? state.layout.positions[config.id] : config.initialPosition;
+            assert.deepEqual(item.home, { ...position, z: 0 }); assert.deepEqual(item.size, config.size); assert.equal(item.policy, true);
         }
         await page.screenshot({ path: path.join(OUTPUT, `switch-${level.id}.png`) });
         await page.evaluate(() => { globalThis.switchOldNodes = cc.director.getScene().getComponentsInChildren('WorkItem').map(w => w.node); });
         const back = await nodeState(page, 'GameBackButton'); await page.mouse.click(back.x, back.y); await page.waitForTimeout(160);
     }
-    inputResults.push('fixture-unlocked real UI switching 1→2→3→4→5→1; unchanged level 2–5 homes/sizes/policies and all targets; cleanup PASS');
+    inputResults.push('fixture-unlocked real UI switching 1→2→3→4→5→1; template homes and unchanged sizes/targets; cleanup PASS');
     await page.close();
 }
 async function main() {
@@ -432,7 +443,8 @@ async function main() {
         else if (failures.length) inputResults.push('NOT RUN or incomplete: six-size geometry/input gate failed; inspect failures');
     } finally { await browser.close(); }
 }
-main().catch(error => { failures.push(error.stack); }).finally(() => {
+module.exports = { readPng, alphaBounds, point, rect, union, overlap, woodUnder, capture, background };
+if (require.main === module) main().catch(error => { failures.push(error.stack); }).finally(() => {
     fs.writeFileSync(path.join(OUTPUT, 'report.json'), JSON.stringify({ candidateHypothesis: CANDIDATE, backgroundHash: background.sha256, alphaBounds: bounds, reports, inputResults, failures, physicalDevice: 'UNVERIFIED' }, null, 2));
     console.log(`Report: ${path.join(OUTPUT, 'report.json')}`);
     if (failures.length) { console.error(failures.join('\n')); process.exitCode = 1; }

@@ -7,11 +7,22 @@ export type OfficeThemeAssetKey =
     | 'background'
     | 'monitorPlay'
     | 'monitorWork'
+    | 'monitorMail'
     | 'monitorNote'
     | 'plant'
     | 'gameConsole'
     | 'snackBag'
     | 'blueContract'
+    | 'redContract'
+    | 'yellowContract'
+    | 'reportBars'
+    | 'reportLine'
+    | 'reportDonut'
+    | 'boundReport'
+    | 'reportFolder'
+    | 'coffee'
+    | 'visitorBadge'
+    | 'badgeStand'
     | 'inspectionTray'
     | 'personalDrawer'
     | 'wastebasket';
@@ -46,6 +57,25 @@ export interface OfficeArtworkLayout {
     readonly y: number;
 }
 
+export type OfficeLabelStyleId = 'document' | 'containerTitle';
+export type OfficeItemLabelRole = 'main' | 'badge' | 'code';
+export interface OfficeLabelStyle {
+    readonly foreground: readonly [number, number, number, number];
+    readonly background: readonly [number, number, number, number];
+    readonly border: readonly [number, number, number, number];
+    readonly radius: number;
+}
+export interface OfficeLabelPlacement {
+    readonly style: OfficeLabelStyleId;
+    readonly fontSize: number;
+    readonly plateWidth: number;
+    readonly plateHeight: number;
+    /** Relative to the untrimmed artwork; absent keeps the existing label anchor. */
+    readonly anchor?: PointData;
+    /** Only bottom targets use an external title, without moving their logical node. */
+    readonly bottomTitleGap?: number;
+}
+
 export interface OfficeThemeConfig {
     readonly id: OfficeThemeId;
     readonly displayName: string;
@@ -53,6 +83,9 @@ export interface OfficeThemeConfig {
     readonly assets: Readonly<Record<OfficeThemeAssetKey, OfficeThemeAssetSpec>>;
     readonly placements: Readonly<Record<OfficeThemeAssetKey, OfficeArtworkPlacement>>;
     readonly levelLayouts: Readonly<Partial<Record<string, OfficeThemeLevelLayout>>>;
+    readonly labelStyles: Readonly<Record<OfficeLabelStyleId, OfficeLabelStyle>>;
+    readonly itemLabels: Readonly<Partial<Record<OfficeThemeAssetKey, Readonly<Partial<Record<OfficeItemLabelRole, OfficeLabelPlacement>>>>>>;
+    readonly zoneLabels: Readonly<Partial<Record<OfficeThemeAssetKey, OfficeLabelPlacement>>>;
     readonly decorations: {
         readonly plant: {
             readonly asset: 'plant';
@@ -63,6 +96,10 @@ export interface OfficeThemeConfig {
 }
 
 export interface OfficeThemeLevelLayout {
+    readonly templateId: string;
+    readonly arrangementId: string;
+    readonly itemColumns: Readonly<Record<string, number>>;
+    readonly replaces: Readonly<Record<string, string>>;
     readonly tabletop: OfficeTabletopConfig;
 }
 
@@ -91,6 +128,8 @@ export interface OfficeDeskItem {
     readonly bounds: OfficeBounds;
     readonly touch: OfficeBounds;
     readonly preferredColumn?: number;
+    /** A named table slot is a hard assignment; do not reshuffle item identity. */
+    readonly fixedColumn?: number;
 }
 
 export interface OfficeDeskGeometry {
@@ -117,14 +156,18 @@ export type OfficeDeskLayout = {
 export interface OfficeItemArtwork {
     readonly asset: OfficeThemeAssetKey;
     readonly runtimeLabel: string;
+    /** Label center as a fraction of the full, untrimmed Sprite canvas. */
+    readonly labelAnchor?: PointData;
 }
 
 export interface OfficeZoneArtwork {
     readonly asset: OfficeThemeAssetKey;
     readonly runtimeLabel: string;
+    readonly labelYRatio?: number;
 }
 
 const RESOURCE_ROOT = 'office/intern-office-v1';
+const SUPPLEMENT_ROOT = 'office/intern-office-v2';
 const BOTTOM_TARGET_VISUAL_SCALE = 1.18;
 const CONTAIN: OfficeArtworkPlacement = {
     fit: 'contain',
@@ -132,6 +175,17 @@ const CONTAIN: OfficeArtworkPlacement = {
     heightRatio: 1,
     offsetX: 0,
     offsetY: 0,
+};
+
+// Backplates fit inside the existing Label reservations: readability must not
+// silently increase an item's footprint or move its initial/home position.
+const DOCUMENT_LABELS: Readonly<Partial<Record<OfficeItemLabelRole, OfficeLabelPlacement>>> = {
+    main: { style: 'document', fontSize: 22, plateWidth: 106, plateHeight: 30 },
+    badge: { style: 'document', fontSize: 22, plateWidth: 60, plateHeight: 26, anchor: { x: 0, y: 0.22 } },
+    code: { style: 'document', fontSize: 18, plateWidth: 56, plateHeight: 24, anchor: { x: 0, y: -0.21 } },
+};
+const REPORT_PAGE_LABELS: Readonly<Partial<Record<OfficeItemLabelRole, OfficeLabelPlacement>>> = {
+    badge: { style: 'document', fontSize: 24, plateWidth: 64, plateHeight: 28, anchor: { x: 0, y: 0.30 } },
 };
 
 export const INTERN_OFFICE_V1: OfficeThemeConfig = {
@@ -150,16 +204,38 @@ export const INTERN_OFFICE_V1: OfficeThemeConfig = {
         inspectionTray: { resourcePath: `${RESOURCE_ROOT}/intern-inspection-tray/spriteFrame`, width: 567, height: 406, hasAlpha: true, visibleAlphaLeft: 47, visibleAlphaRight: 473, visibleAlphaTop: 75, visibleAlphaBottom: 321, supportLeft: 69, supportRight: 414 },
         personalDrawer: { resourcePath: `${RESOURCE_ROOT}/intern-personal-drawer/spriteFrame`, width: 510, height: 483, hasAlpha: true },
         wastebasket: { resourcePath: `${RESOURCE_ROOT}/intern-wastebasket/spriteFrame`, width: 400, height: 450, hasAlpha: true },
+        monitorMail: { resourcePath: `${SUPPLEMENT_ROOT}/intern-monitor-mail/spriteFrame`, width: 768, height: 512, hasAlpha: true, visibleAlphaLeft: 62, visibleAlphaRight: 705, visibleAlphaTop: 36, visibleAlphaBottom: 476, supportLeft: 250, supportRight: 519 },
+        redContract: { resourcePath: `${SUPPLEMENT_ROOT}/intern-red-contract/spriteFrame`, width: 606, height: 368, hasAlpha: true, visibleAlphaLeft: 18, visibleAlphaRight: 588, visibleAlphaTop: 18, visibleAlphaBottom: 350 },
+        yellowContract: { resourcePath: `${SUPPLEMENT_ROOT}/intern-yellow-contract/spriteFrame`, width: 606, height: 368, hasAlpha: true, visibleAlphaLeft: 18, visibleAlphaRight: 588, visibleAlphaTop: 18, visibleAlphaBottom: 350 },
+        reportBars: { resourcePath: `${SUPPLEMENT_ROOT}/intern-report-bars/spriteFrame`, width: 552, height: 672, hasAlpha: true, visibleAlphaLeft: 11, visibleAlphaRight: 534, visibleAlphaTop: 63, visibleAlphaBottom: 631 },
+        reportLine: { resourcePath: `${SUPPLEMENT_ROOT}/intern-report-line/spriteFrame`, width: 552, height: 672, hasAlpha: true, visibleAlphaLeft: 11, visibleAlphaRight: 534, visibleAlphaTop: 63, visibleAlphaBottom: 631 },
+        reportDonut: { resourcePath: `${SUPPLEMENT_ROOT}/intern-report-donut/spriteFrame`, width: 552, height: 672, hasAlpha: true, visibleAlphaLeft: 11, visibleAlphaRight: 534, visibleAlphaTop: 63, visibleAlphaBottom: 631 },
+        boundReport: { resourcePath: `${SUPPLEMENT_ROOT}/intern-bound-report/spriteFrame`, width: 600, height: 400, hasAlpha: true, visibleAlphaLeft: 27, visibleAlphaRight: 590, visibleAlphaTop: 44, visibleAlphaBottom: 387 },
+        reportFolder: { resourcePath: `${SUPPLEMENT_ROOT}/intern-report-folder/spriteFrame`, width: 760, height: 560, hasAlpha: true, visibleAlphaLeft: 12, visibleAlphaRight: 748, visibleAlphaTop: 12, visibleAlphaBottom: 547, supportLeft: 49, supportRight: 711 },
+        coffee: { resourcePath: `${SUPPLEMENT_ROOT}/intern-coffee/spriteFrame`, width: 448, height: 472, hasAlpha: true, visibleAlphaLeft: 65, visibleAlphaRight: 412, visibleAlphaTop: 13, visibleAlphaBottom: 456 },
+        visitorBadge: { resourcePath: `${SUPPLEMENT_ROOT}/intern-visitor-badge/spriteFrame`, width: 448, height: 304, hasAlpha: true, visibleAlphaLeft: 10, visibleAlphaRight: 438, visibleAlphaTop: 24, visibleAlphaBottom: 240 },
+        badgeStand: { resourcePath: `${SUPPLEMENT_ROOT}/intern-badge-stand/spriteFrame`, width: 740, height: 448, hasAlpha: true, visibleAlphaLeft: 12, visibleAlphaRight: 693, visibleAlphaTop: 37, visibleAlphaBottom: 411 },
     },
     placements: {
         background: CONTAIN,
         monitorPlay: { fit: 'width', widthRatio: 1, heightRatio: 1.25, offsetX: 0, offsetY: 8 },
         monitorWork: { fit: 'width', widthRatio: 1, heightRatio: 1.25, offsetX: 0, offsetY: 8 },
+        monitorMail: { fit: 'width', widthRatio: 1, heightRatio: 1.25, offsetX: 0, offsetY: 8 },
         monitorNote: { fit: 'contain', widthRatio: 0.25, heightRatio: 0.45, offsetX: 0.34, offsetY: 0.39 },
         plant: { ...CONTAIN, offsetX: LEVEL_ONE_PLANT_VISUAL_OFFSET_X },
         gameConsole: CONTAIN,
         snackBag: CONTAIN,
         blueContract: CONTAIN,
+        redContract: CONTAIN,
+        yellowContract: CONTAIN,
+        reportBars: CONTAIN,
+        reportLine: CONTAIN,
+        reportDonut: CONTAIN,
+        boundReport: CONTAIN,
+        reportFolder: CONTAIN,
+        coffee: CONTAIN,
+        visitorBadge: CONTAIN,
+        badgeStand: CONTAIN,
         inspectionTray: CONTAIN,
         personalDrawer: {
             ...CONTAIN,
@@ -172,21 +248,19 @@ export const INTERN_OFFICE_V1: OfficeThemeConfig = {
             heightRatio: BOTTOM_TARGET_VISUAL_SCALE,
         },
     },
-    levelLayouts: {
-        'level-001': {
-            tabletop: {
-                sourceWidth: 860,
-                sourceHeight: 1828,
-                // Measured from the unchanged PNG, rounded INWARD. Runtime
-                // regressions independently decode every wood/Alpha column.
-                backProfile: [{ x: 0, y: 967 }, { x: 94, y: 857 }, { x: 818, y: 857 }, { x: 860, y: 921 }],
-                frontPixel: 1085,
-                columns: [-250, 0, 255],
-                gap: 12,
-                supportGap: 8,
-                maximumBackgroundZoom: 1.15,
-            },
-        },
+    // Filled by the validated JsonAsset table before the theme becomes ready.
+    levelLayouts: {},
+    labelStyles: {
+        document: { foreground: [24, 44, 56, 255], background: [255, 248, 232, 255], border: [218, 222, 218, 255], radius: 4 },
+        containerTitle: { foreground: [246, 249, 250, 255], background: [22, 43, 54, 240], border: [64, 88, 100, 255], radius: 6 },
+    },
+    itemLabels: {
+        blueContract: DOCUMENT_LABELS, redContract: DOCUMENT_LABELS, yellowContract: DOCUMENT_LABELS,
+        reportBars: REPORT_PAGE_LABELS, reportLine: REPORT_PAGE_LABELS, reportDonut: REPORT_PAGE_LABELS,
+        boundReport: { main: { style: 'document', fontSize: 22, plateWidth: 106, plateHeight: 30 } },
+    },
+    zoneLabels: {
+        inspectionTray: { style: 'containerTitle', fontSize: 22, plateWidth: 160, plateHeight: 32, bottomTitleGap: 30 },
     },
     decorations: {
         plant: {
@@ -207,20 +281,44 @@ export function getOfficeTheme(themeId: OfficeThemeId): OfficeThemeConfig {
     return OFFICE_THEMES[themeId];
 }
 
-export function resolveOfficeItemArtwork(config: WorkItemConfig): OfficeItemArtwork | null {
+/** Resolve each visual state, not just the initial item. Missing art stays vector-rendered. */
+export function resolveOfficeItemArtwork(config: WorkItemConfig, clickProgress = 0): OfficeItemArtwork | null {
     switch (config.visual) {
         case 'monitor':
-            return { asset: 'monitorPlay', runtimeLabel: '' };
+            if (clickProgress > 0 && clickProgress < config.clickStates.length - 1) {
+                return config.visualVariant === 'monitor-two-step' && clickProgress === 1
+                    ? { asset: 'monitorMail', runtimeLabel: '' } : null;
+            }
+            return { asset: clickProgress > 0 ? 'monitorWork' : 'monitorPlay', runtimeLabel: '' };
         case 'console':
             return { asset: 'gameConsole', runtimeLabel: '游戏机' };
         case 'snack':
             return { asset: 'snackBag', runtimeLabel: '脆脆零食' };
         case 'contract':
-            return config.visualVariant === undefined || config.visualVariant === 'file-current'
-                ? { asset: 'blueContract', runtimeLabel: '蓝色合同' }
+            // Current/old blue files intentionally share the cover. Keep their
+            // configured badge/code instead of relabelling both as 蓝色合同.
+            return config.visualVariant === undefined || config.visualVariant === 'file-current' || config.visualVariant === 'file-archive'
+                ? { asset: 'blueContract', runtimeLabel: config.visualVariant === undefined ? '蓝色合同' : '' }
                 : null;
         case 'plant':
             return { asset: 'plant', runtimeLabel: '' };
+        case 'contract-red':
+            return { asset: 'redContract', runtimeLabel: '' };
+        case 'contract-yellow':
+            return { asset: 'yellowContract', runtimeLabel: '' };
+        case 'report-page':
+            switch (config.visualVariant) {
+                case 'report-bars': return { asset: 'reportBars', runtimeLabel: '' };
+                case 'report-line': return { asset: 'reportLine', runtimeLabel: '' };
+                case 'report-donut': return { asset: 'reportDonut', runtimeLabel: '' };
+                default: return null;
+            }
+        case 'bound-report':
+            return { asset: 'boundReport', runtimeLabel: '装订报告', labelAnchor: { x: 0.04, y: 0.21 } };
+        case 'coffee':
+            return { asset: 'coffee', runtimeLabel: '咖啡' };
+        case 'visitor-badge':
+            return { asset: 'visitorBadge', runtimeLabel: '访客', labelAnchor: { x: 0.12, y: 0.02 } };
         default:
             return null;
     }
@@ -234,6 +332,10 @@ export function resolveOfficeZoneArtwork(config: DropZoneConfig): OfficeZoneArtw
             return { asset: 'wastebasket', runtimeLabel: '废弃物' };
         case 'review-tray':
             return { asset: 'inspectionTray', runtimeLabel: '待检查文件' };
+        case 'report-folder':
+            return { asset: 'reportFolder', runtimeLabel: '报告文件夹', labelYRatio: -0.15 };
+        case 'badge-stand':
+            return { asset: 'badgeStand', runtimeLabel: '访客证位置', labelYRatio: 0.08 };
         default:
             return null;
     }
@@ -289,7 +391,8 @@ export function solveOfficeDeskLayout(config: OfficeTabletopConfig, geometry: Of
         || config.sourceWidth <= 0 || config.sourceHeight <= 0 || config.gap < 0 || config.supportGap < 0 || config.maximumBackgroundZoom < 1
         || config.backProfile.length < 2 || config.backProfile.some((p, i) => !Number.isFinite(p.x) || !Number.isFinite(p.y) || (i > 0 && p.x <= config.backProfile[i - 1].x))
         || ![...geometry.obstacles, ...geometry.inputBlockers, ...geometry.supports].every(validBounds)
-        || !geometry.supports.length || geometry.items.some(item => !validBounds(item.bounds) || !validBounds(item.touch) || item.bounds.left >= item.bounds.right || item.bounds.bottom >= item.bounds.top)) {
+        || !geometry.supports.length || geometry.items.some(item => !validBounds(item.bounds) || !validBounds(item.touch) || item.bounds.left >= item.bounds.right || item.bounds.bottom >= item.bounds.top
+            || (item.fixedColumn !== undefined && (!Number.isInteger(item.fixedColumn) || item.fixedColumn < 0 || item.fixedColumn >= config.columns.length)))) {
         return fail('invalid-geometry');
     }
     const cover = Math.max(geometry.viewportWidth / config.sourceWidth, geometry.viewportHeight / config.sourceHeight);
@@ -329,7 +432,7 @@ export function solveOfficeDeskLayout(config: OfficeTabletopConfig, geometry: Of
                 if (index === sorted.length) { return true; }
                 const { item, index: originalIndex } = sorted[index];
                 const preferred = item.preferredColumn ?? originalIndex % config.columns.length;
-                const columns = config.columns.map((x, column) => ({ x, column })).sort((a, b) =>
+                const columns = config.columns.map((x, column) => ({ x, column })).filter(c => item.fixedColumn === undefined || item.fixedColumn === c.column).sort((a, b) =>
                     Math.abs(a.column - preferred) - Math.abs(b.column - preferred));
                 for (const { x } of columns) {
                     const body = movedOfficeBounds(item.bounds, { x, y: 0 });

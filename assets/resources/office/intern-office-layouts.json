@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "templates": {
+    "intern-desk": {
+      "surface": {
+        "sourceWidth": 860,
+        "sourceHeight": 1828,
+        "backProfile": [{ "x": 0, "y": 967 }, { "x": 94, "y": 857 }, { "x": 818, "y": 857 }, { "x": 860, "y": 921 }],
+        "frontPixel": 1085,
+        "gap": 12,
+        "supportGap": 8,
+        "maximumBackgroundZoom": 1.15
+      },
+      "arrangements": {
+        "three": { "left": -250, "center": 0, "right": 255 },
+        "four": { "left": -255, "middleLeft": -85, "middleRight": 85, "right": 255 },
+        "five": { "left": -260, "middleLeft": -130, "center": 0, "middleRight": 130, "right": 260 }
+      }
+    }
+  },
+  "levels": {
+    "level-001": {
+      "template": "intern-desk", "arrangement": "three",
+      "items": { "console": "left", "snack": "center", "contract": "right" }
+    },
+    "level-002": {
+      "template": "intern-desk", "arrangement": "five",
+      "items": { "console": "left", "snack": "middleLeft", "blue-contract": "center", "red-contract": "middleRight", "yellow-contract": "right" }
+    },
+    "level-003": {
+      "template": "intern-desk", "arrangement": "four",
+      "items": { "console": "left", "report-page-1": "middleLeft", "report-page-2": "middleRight", "report-page-3": "right", "bound-report": "middleRight" },
+      "replaces": { "bound-report": "report-page-2" }
+    },
+    "level-004": {
+      "template": "intern-desk", "arrangement": "three",
+      "items": { "console": "left", "coffee": "center", "contract": "right" }
+    },
+    "level-005": {
+      "template": "intern-desk", "arrangement": "four",
+      "items": { "console": "left", "old-contract": "middleLeft", "visitor-badge": "middleRight", "current-contract": "right" }
+    }
+  }
+}

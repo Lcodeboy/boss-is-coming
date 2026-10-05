@@ -1,4 +1,5 @@
-import { resources, SpriteFrame, warn } from 'cc';
+import { JsonAsset, resources, SpriteFrame, warn } from 'cc';
+import { OFFICE_LAYOUT_RESOURCE, OfficeLayoutCatalog, parseOfficeLayoutCatalog } from './OfficeLayoutCatalog';
 import {
     getOfficeTheme,
     OfficeThemeAssetKey,
@@ -7,6 +8,7 @@ import {
 } from './OfficeTheme';
 
 export interface LoadedOfficeThemeAssets {
+    readonly layoutCatalog: OfficeLayoutCatalog;
     readonly theme: OfficeThemeConfig;
     readonly frames: Readonly<Record<OfficeThemeAssetKey, SpriteFrame>>;
 }
@@ -20,20 +22,6 @@ interface OfficeThemeLoadRuntime {
     readonly listeners: Set<OfficeThemeLoadListener>;
     warningShown: boolean;
 }
-
-const OFFICE_THEME_ASSET_KEYS: readonly OfficeThemeAssetKey[] = [
-    'background',
-    'monitorPlay',
-    'monitorWork',
-    'monitorNote',
-    'plant',
-    'gameConsole',
-    'snackBag',
-    'blueContract',
-    'inspectionTray',
-    'personalDrawer',
-    'wastebasket',
-];
 
 const LOAD_RUNTIMES: Partial<Record<OfficeThemeId, OfficeThemeLoadRuntime>> = {};
 
@@ -71,42 +59,54 @@ export function requestOfficeThemeAssets(
     if (runtime.state === 'idle') {
         runtime.state = 'loading';
         const theme = getOfficeTheme(themeId);
+        const assetKeys = Object.keys(theme.assets) as OfficeThemeAssetKey[];
         const frames: Partial<Record<OfficeThemeAssetKey, SpriteFrame>> = {};
-        let remaining = OFFICE_THEME_ASSET_KEYS.length;
+        let remaining = assetKeys.length + 1;
         let failed = false;
+        let layoutCatalog: OfficeLayoutCatalog | null = null;
 
-        for (const assetKey of OFFICE_THEME_ASSET_KEYS) {
+        const finish = (): void => {
+            remaining -= 1;
+            if (remaining !== 0) { return; }
+            if (failed || layoutCatalog === null) {
+                runtime.state = 'failed';
+                runtime.assets = null;
+                if (!runtime.warningShown) {
+                    runtime.warningShown = true;
+                    warn(`办公室主题 ${themeId} 资源或布局表加载失败，继续使用现有矢量视觉`);
+                }
+            } else {
+                runtime.state = 'ready';
+                runtime.assets = {
+                    theme: { ...theme, levelLayouts: layoutCatalog.levels },
+                    frames: frames as Record<OfficeThemeAssetKey, SpriteFrame>,
+                    layoutCatalog,
+                };
+            }
+            const listeners = Array.from(runtime.listeners);
+            runtime.listeners.clear();
+            for (const waitingListener of listeners) { waitingListener(runtime.assets); }
+        };
+
+        resources.load(OFFICE_LAYOUT_RESOURCE, JsonAsset, (error, asset) => {
+            try {
+                if (error || !asset) { throw error ?? new Error('Missing office layout table'); }
+                layoutCatalog = parseOfficeLayoutCatalog(asset.json as unknown);
+            } catch (error: unknown) {
+                failed = true;
+                warn(`办公室布局表无效：${String(error)}`);
+            }
+            finish();
+        });
+
+        for (const assetKey of assetKeys) {
             resources.load(theme.assets[assetKey].resourcePath, SpriteFrame, (error, frame) => {
                 if (error !== null && error !== undefined || frame === null || frame === undefined) {
                     failed = true;
                 } else {
                     frames[assetKey] = frame;
                 }
-                remaining -= 1;
-                if (remaining !== 0) {
-                    return;
-                }
-
-                if (failed) {
-                    runtime.state = 'failed';
-                    runtime.assets = null;
-                    if (!runtime.warningShown) {
-                        runtime.warningShown = true;
-                        warn(`办公室主题 ${themeId} 资源加载失败，继续使用现有矢量视觉`);
-                    }
-                } else {
-                    runtime.state = 'ready';
-                    runtime.assets = {
-                        theme,
-                        frames: frames as Record<OfficeThemeAssetKey, SpriteFrame>,
-                    };
-                }
-
-                const result = runtime.assets;
-                for (const waitingListener of runtime.listeners) {
-                    waitingListener(result);
-                }
-                runtime.listeners.clear();
+                finish();
             });
         }
     }

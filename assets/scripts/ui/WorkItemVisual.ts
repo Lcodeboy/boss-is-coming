@@ -8,6 +8,7 @@ import {
 import { LoadedOfficeThemeAssets } from './OfficeThemeAssets';
 import { createPassiveSprite } from './VisualFactory';
 import { LEVEL_ONE_PLANT_VISUAL_OFFSET_X } from './VisualMetrics';
+import { OfficeLabelBackdrops } from './OfficeLabelBackdrops';
 
 const { ccclass } = _decorator;
 
@@ -35,6 +36,7 @@ export class WorkItemVisual extends Component {
     private _completed = false;
     private _selected = false;
     private _collectedHidden = false;
+    private readonly _officeLabels = new OfficeLabelBackdrops();
 
     public initialize(
         config: WorkItemConfig,
@@ -65,7 +67,12 @@ export class WorkItemVisual extends Component {
         this._completed = completed;
         this._selected = selected;
         this._collectedHidden = false;
+        this._officeLabels.reset();
         this.setLabelsVisible(true);
+        this.resetThemeLabelLayout(config);
+        if (config.visual === 'monitor' && config.clickStates.length > 2 && this._mainLabel !== null) {
+            this._mainLabel.string = completed ? '工作报表已打开' : clickProgress > 0 ? '再点一次打开报表' : '点击 2 次切换';
+        }
         const themedArtwork = this._formal
             && this.renderOfficeThemeArtwork(graphics, config, clickProgress, completed, selected);
         if (this._formal) {
@@ -84,6 +91,7 @@ export class WorkItemVisual extends Component {
 
     /** 组合任务页面收入容器后只隐藏外观，逻辑节点与碰撞状态保持不变。 */
     public hideCollectedVisual(): void {
+        this._officeLabels.reset();
         this._graphics?.clear();
         this._collectedHidden = true;
         this.hideOfficeThemeArtwork();
@@ -103,13 +111,11 @@ export class WorkItemVisual extends Component {
         selected: boolean,
     ): boolean {
         const themeAssets = this._themeAssets;
-        const artwork = resolveOfficeItemArtwork(config);
+        const artwork = resolveOfficeItemArtwork(config, clickProgress);
         if (themeAssets === null || artwork === null) {
             return false;
         }
-        const assetKey = config.visual === 'monitor'
-            ? clickProgress > 0 ? 'monitorWork' : 'monitorPlay'
-            : artwork.asset;
+        const assetKey = artwork.asset;
         const spriteFrame = themeAssets.frames[assetKey];
         const layout = calculateOfficeArtworkLayout(
             themeAssets.theme,
@@ -155,9 +161,43 @@ export class WorkItemVisual extends Component {
             if (this._mainLabel !== null) {
                 this._mainLabel.string = artwork.runtimeLabel;
                 this._mainLabel.color = this.labelColor(config.visual);
+                if (artwork.labelAnchor !== undefined) {
+                    this._mainLabel.node.setPosition(layout.width * artwork.labelAnchor.x, layout.height * artwork.labelAnchor.y);
+                }
+            }
+            const placements = themeAssets.theme.itemLabels[assetKey];
+            const labels = { main: this._mainLabel, badge: this._visualBadgeLabel, code: this._visualCodeLabel };
+            for (const role of ['main', 'badge', 'code'] as const) {
+                const placement = placements?.[role];
+                const label = labels[role];
+                if (placement === undefined || label === null || !label.string) { continue; }
+                if (placement.anchor !== undefined) {
+                    label.node.setPosition(layout.width * placement.anchor.x, layout.height * placement.anchor.y);
+                }
+                this._officeLabels.apply(label, themeAssets.theme.labelStyles[placement.style], placement);
             }
         }
         return true;
+    }
+
+    /** Restore the original vector label anchors when theme art is unavailable. */
+    private resetThemeLabelLayout(config: WorkItemConfig): void {
+        if (this._mainLabel !== null && config.visual !== 'monitor') {
+            this._mainLabel.node.setPosition(0, this._formal ? this.labelY(config) : 0);
+        }
+        if (config.visual === 'report-page' && this._visualBadgeLabel !== null) {
+            this._visualBadgeLabel.node.setPosition(0, config.size.height / 2 - 18);
+            this._visualBadgeLabel.color = Palette.white;
+        }
+        if (['contract', 'contract-red', 'contract-yellow'].indexOf(config.visual) < 0 || config.visualVariant === undefined) { return; }
+        if (this._visualBadgeLabel !== null) {
+            this._visualBadgeLabel.node.setPosition(this.visualBadgeX(config), config.size.height / 2 - 18);
+            this._visualBadgeLabel.color = Palette.white;
+        }
+        if (this._visualCodeLabel !== null) {
+            this._visualCodeLabel.node.setPosition(config.size.width / 2 - 36, -config.size.height / 2 + 17);
+            this._visualCodeLabel.color = Palette.white;
+        }
     }
 
     private renderMonitorNote(
